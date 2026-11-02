@@ -82,7 +82,7 @@ static void cf_boot_note(void);            /* (cf_fx.c) */
 #define FELUCCA_ICONS 0
 #define FELUCCA_KEYCAPS 0
 #ifndef FELUCCA_ID
-#define FELUCCA_ID "FM-1_930"    /* package identity (build.py: the .fwsc marker string) */
+#define FELUCCA_ID "FM-1_941"    /* package identity (build.py: the .fwsc marker string; CoralFlower's is FM-1_930) */
 #endif
 #ifndef FELUCCA_VERSION
 #define FELUCCA_VERSION "CoralFlower 0.1"

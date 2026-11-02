@@ -87,6 +87,8 @@ typedef struct {
                                   * cf_sequi.c sq_home_poll): CF_RESUME_ON | pattern 0..7, or CF_RESUME_ON |
                                   * CF_RESUME_SONG | the block the song's frame is on; 0 none. In what was the record's
                                   * padding byte: its size stays, 0.4.1 reads it */
+    uint8_t cloud[4];            /* the Cloud reverb's CLOUD, BLOOM, TONE, DUCK 0..100 (FX, the reverb's second page;
+                                  * cf_fx.c cl_*; its SPACE and MIX are the reverb's DECAY and MIX) */
 } cf_set_t;
 #define CF_RESUME_ON 0x80u
 #define CF_RESUME_SONG 0x40u
@@ -135,6 +137,10 @@ static void cs_defaults(cf_set_t *s)
     s->ch_drums = 9;                             /* (channel 10: General MIDI's drums) */
     s->seq_hint = 0;
     s->resume = 0;
+    s->cloud[0] = 45;                            /* CLOUD, BLOOM, TONE, DUCK: the browser sim's */
+    s->cloud[1] = 60;
+    s->cloud[2] = 45;
+    s->cloud[3] = 35;
 }
 
 /* --------------------------------------------------------- the UI's own --- */

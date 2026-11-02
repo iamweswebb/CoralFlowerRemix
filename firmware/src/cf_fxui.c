@@ -2,6 +2,8 @@
  * CoralFlower: the FX screen's controls (cf_fx.c runs the chain). SELECT picks an effect along the chain, ALGORITHM
  * moves it there (one place a detent), KNOB 1 turns it on (right) or off (left), KNOB 2-4 its values (the owner: On/Off
  * first; the stock FM-1 has it on KNOB 4). Every change goes to the audio side at once (cf_fx_apply) and is kept with the settings.
+ * The Cloud (the reverb's fourth TYPE): KNOB 3 is SPACE (DECAY's value), KNOB 4 MIX; SEL turns to its second page,
+ * KNOB 1-4 CLOUD, BLOOM, TONE, DUCK (cs.cloud), and back; LFO is FREEZE while the reverb is a Cloud (not kept).
  * Included by cf_ui.c after its helpers. */
 
 static const char *const CFX_NAME[CFX_N] = {"Filter", "Reverb", "Delay", "Distortion", "Chorus", "Phaser"};
@@ -11,10 +13,23 @@ static const char *const CFX_KNOB[CFX_N][3] = {
     {"DRIVE", "TONE", "LEVEL"}, {"RATE", "DEPTH", "MIX"}, {"RATE", "DEPTH", "MIX"}};
 static const char *const CFX_FTYPE[3] = {"Low pass", "Band pass", "High pass"};
 static const char *const CFX_FTYPE_S[3] = {"LPF", "BPF", "HPF"};   /* (a knob cell holds 7 characters) */
-static const char *const CFX_RTYPE[3] = {"Room", "Hall", "Plate"};
+static const char *const CFX_RTYPE[4] = {"Room", "Hall", "Plate", "Cloud"};
+static const char *const CL_KNOB[4] = {"CLOUD", "BLOOM", "TONE", "DUCK"};
 
 static uint32_t cfx_sel(void) { return cs.fx.order[cu.fx_pos % CFX_N] % CFX_N; }
 static int cfx_is_on(uint32_t e) { return (int)((cs.fx.on >> e) & 1u); }
+static int cfx_cloud(void) { return cs.fx.v[CFX_REVERB][0] == CL_TYPE; }   /* the reverb is a Cloud */
+static int cfx_cloud_page(void) { return cfx_cloud() && cfx_sel() == CFX_REVERB && cu.page[SCR_FX]; }
+/* LFO on FX: FREEZE (the Cloud's tank held, nothing new in). Only a Cloud that is on freezes */
+static void cfx_freeze_toggle(void)
+{
+    if (!cfx_is_on(CFX_REVERB)) {
+        cf_message("Reverb is off");
+        return;
+    }
+    cf_cloud_freeze(!cfx_frz);
+    cf_message(cfx_frz ? "Freeze" : "Freeze off");
+}
 
 /* "1004 Hz", "2.5 kHz", "12 kHz": 7 characters at most */
 static void cfx_hz(char *b, uint32_t hz)
@@ -45,16 +60,23 @@ static void cfx_knob_info(int knob, cf_knob_t *o)
     uint32_t e = cfx_sel();
     const uint8_t *v = cs.fx.v[e];
     int k = knob - 1;                            /* (KNOB 1 the switch, KNOB 2-4 the three values) */
-    if (knob == 0) {
-        kfmt(o->name, 12, "ON/OFF");
-        kfmt(o->val, 14, cfx_is_on(e) ? "On" : "Off");
+    if (cfx_cloud_page()) {                      /* the Cloud's second page: its four macros */
+        kfmt(o->name, 12, CL_KNOB[knob & 3]);
+        kint(o->val, cs.cloud[knob & 3], "%");
+        o->bar = (int16_t)(cs.cloud[knob & 3] * 255 / 100);
+        o->dis = !cfx_is_on(e);
         return;
     }
-    kfmt(o->name, 12, CFX_KNOB[e][k]);
+    if (knob == 0) {
+        kfmt(o->name, 12, "ON/OFF");
+        kfmt(o->val, 14, !cfx_is_on(e) ? "Off" : e == CFX_REVERB && cfx_cloud() && cfx_frz ? "Frozen" : "On");
+        return;
+    }
+    kfmt(o->name, 12, e == CFX_REVERB && k == 1 && cfx_cloud() ? "SPACE" : CFX_KNOB[e][k]);
     o->dis = !cfx_is_on(e);
     o->bar = (int16_t)(v[k] * 255 / 100);
     if (k == 0 && (e == CFX_FILTER || e == CFX_REVERB)) {
-        kfmt(o->val, 14, (e == CFX_FILTER ? CFX_FTYPE_S : CFX_RTYPE)[v[0] > 2u ? 2u : v[0]]);
+        kfmt(o->val, 14, e == CFX_FILTER ? CFX_FTYPE_S[v[0] > 2u ? 2u : v[0]] : CFX_RTYPE[v[0] > CL_TYPE ? CL_TYPE : v[0]]);
         o->bar = -1;
     } else if (e == CFX_FILTER && k == 1) {
         cfx_hz(o->val, CFX_HZ[v[1] > 99u ? 99u : v[1]]);
@@ -75,12 +97,19 @@ static void cfx_knob_turn(int knob, int d)
     uint32_t e = cfx_sel();
     uint8_t *v = cs.fx.v[e];
     int k = knob - 1;
+    if (cfx_cloud_page()) {
+        cs.cloud[knob & 3] = (uint8_t)clampi(cs.cloud[knob & 3] + d, 0, 100);
+        cf_cloud_apply(cs.cloud);
+        return;
+    }
     if (knob == 0)
         cs.fx.on = (uint8_t)(d > 0 ? cs.fx.on | (1u << e) : cs.fx.on & ~(1u << e));
     else if (k == 0 && (e == CFX_FILTER || e == CFX_REVERB))
-        v[0] = (uint8_t)clampi(v[0] + (d > 0 ? 1 : -1), 0, 2);
+        v[0] = (uint8_t)clampi(v[0] + (d > 0 ? 1 : -1), 0, e == CFX_REVERB ? (int)CL_TYPE : 2);
     else
         v[k] = (uint8_t)clampi(v[k] + d, 0, e == CFX_FILTER && k == 1 ? 99 : 100);
+    if (!cfx_cloud() || !cfx_is_on(CFX_REVERB))
+        cf_cloud_freeze(0);                      /* (a Cloud switched off or left: not frozen) */
     cf_fx_apply(&cs.fx);
 }
 

@@ -9,7 +9,7 @@
 The unit is firmware/src/coralflower.c (CoralFlower's single compilation unit, after ChoralRoot's choralroot.c, a
 fork of Felucca's felucca.c). Outputs in build/: coralflower.bin (app.bin: the boot stub's 0xEE0 bytes, then the app),
 coralflower.elf, coralflower.dis (the app), stub/stub.{bin,elf,dis} (the boot stub, firmware/stub), loader/ota.bin
-(update loader), coralflower.fwsc (package, identity FM-1_930). A release build (--release X.Y) keeps the identity,
+(update loader), coralflower.fwsc (package, identity FM-1_941). A release build (--release X.Y) keeps the identity,
 sets the version string to "CoralFlower X.Y" and writes coralflower-X.Y.fwsc and a folder release-X.Y/ with the
 package, the app (coralflower-X.Y-app.bin), SHA256SUMS and the licence files (LICENSE, LICENSING.md, LICENSES/).
 After the checks it prints the section sizes against the XIP slot and the RAM / POOL / NOINIT regions.
@@ -63,7 +63,9 @@ SDK_SHA256 = {
 }
 
 UNIT = "coralflower"                # firmware/src/UNIT.c; outputs build/UNIT.{bin,elf,dis,fwsc}
-PRODUCT = "FM-1_930"                # package identity (CoralFlower: constant, releases too)
+PRODUCT = "FM-1_941"                # package identity (CoralFlower Cloud, the iamweswebb fork: its own, constant, releases
+                                    # too; CoralFlower is FM-1_930. The version text stays "CoralFlower X.Y": installers
+                                    # tell a CoralFlower by it, web/fm1ota.js classifyFirmware)
 VERSION = None                      # FELUCCA_VERSION for release builds (default: firmware/src/coralflower.c)
 XIP_LEN, RAM_LEN, POOL_LEN, NOINIT_LEN = fm1pkg_make.BODY_MAX, 96 * 1024, 0x54000, 0x3D30   # firmware/app.ld
 
@@ -451,7 +453,7 @@ def main():
         print(f"generated {GEN}: {', '.join(sorted(p.name for p in GEN.glob('*.h')))}")
         return 0
     name = f"{UNIT}.fwsc"
-    if a.release:                   # the identity stays FM-1_930: only the version string and the names change
+    if a.release:                   # the identity stays FM-1_941: only the version string and the names change
         m = re.fullmatch(r"\d+\.\d+(?:\.\d+)?(?:-[A-Za-z0-9.]+)?", a.release)   # the identity never encodes it
         if not m:
             raise SystemExit(f"--release {a.release}: use X.Y, X.Y.Z or X.Y-suffix")

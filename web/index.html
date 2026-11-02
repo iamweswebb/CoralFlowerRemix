@@ -9,7 +9,7 @@
      (fm1pkg.js) and backup (fm1backup.js), loaded from this folder as modules. Its button is in the first screen, where
      its progress shows; every other "Install on your FM-1" button presses that one. The firmware to install: the newest
      version firmware/releases.json lists (fetched from this site and checked against its SHA-256), another version, or
-     a .fwsc file the user picks (checked here before Install is enabled: CoralFlower's identity FM-1_930, Felucca's
+     a .fwsc file the user picks (checked here before Install is enabled: this fork's identity FM-1_941, Felucca's
      update loader, every checksum of the package). The Support dialog and its script are the same on every page.
      web/test_installer.mjs runs this page against a simulated FM-1; tools/make_site.sh puts the site together. -->
 <html lang="en">
@@ -442,7 +442,7 @@ import { Updater, classifyFirmware, refusalText } from "./fm1ota.js";
 import { BackupConnection, captureBackup, restoreBackup, deviceInfo, restartDevice, readBackup, backupFamily, backupFileName, objectNames } from "./fm1backup.js";
 
 const $ = (id) => document.getElementById(id);
-const PRODUCT = "FM-1_930";                      // CoralFlower's identity (tools/build.py PRODUCT): every package, every version
+const PRODUCT = "FM-1_941";                      // this fork's identity (tools/build.py PRODUCT; CoralFlower's is FM-1_930)
 const MODEL = PRODUCT.split("_")[0];
 const LOADER_MARK = "FELUCCA-LOADER-1";          // Felucca's update loader (tools/fm1pkg_make.py ota.bin): never a vendor one
 const PKG_FLASH = 0x93000, PKG_APP_BASE = 0x4000; // the FM-1 flash layout of every fm1pkg_make.py package

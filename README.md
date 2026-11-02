@@ -1,5 +1,13 @@
 # CoralFlower
 
+> **This fork (iamweswebb/CoralFlowerRemix): CoralFlower with a Cloud reverb.** The reverb has a fourth TYPE, Cloud:
+> a granular ambient reverb with a long modulated tank and a cloud of octave and reversed grains fed back into it.
+> On the FX screen with the reverb selected: KNOB 3 SPACE, KNOB 4 MIX; **SEL** turns to CLOUD, BLOOM, TONE and DUCK;
+> **LFO** is FREEZE. While the reverb is a Cloud the delay goes up to 370 ms (the Cloud borrows half its memory).
+> The package identity is **FM-1_941** (CoralFlower's is FM-1_930), so it installs from this fork's own page,
+> https://iamweswebb.github.io/CoralFlowerRemix/, with "Choose a .fwsc file". The official CoralFlower installer can
+> still put CoralFlower back over it.
+
 **Your M-VAVE FM-1, made for chords.** CoralFlower is free firmware for the FM-1. Press a chord key, and every note
 you play becomes a whole chord, with a bass underneath. While you play, a pixel flower grows from your chords.
 

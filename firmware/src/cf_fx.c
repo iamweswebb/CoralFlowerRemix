@@ -23,6 +23,7 @@
 #endif
 
 enum { CFX_FILTER, CFX_REVERB, CFX_DELAY, CFX_DIST, CFX_CHORUS, CFX_PHASER, CFX_N };
+#define CL_TYPE 3u                       /* the reverb's TYPE (its first value): Room, Hall, Plate, Cloud (cl_run) */
 typedef struct {
     uint8_t order[CFX_N];            /* the chain, first to last: effect ids */
     uint8_t on;                      /* bit e: effect e is on */
@@ -145,6 +146,9 @@ static volatile uint32_t cfx_quiet;  /* blocks since the chain's output was last
                                       * on the unit) never lands in a reverb's or a delay's tail */
 static cf_fx_t cfx_set;              /* the chain as the ISR uses it (cf_fx_apply copies cs.fx in, IRQ off) */
 static uint8_t cfx_ready;
+static uint8_t cfx_cl[4] = {45, 60, 45, 35};   /* the Cloud's CLOUD, BLOOM, TONE, DUCK 0..100 (cs.cloud: cf_cloud_apply;
+                                      * the sim's defaults) */
+static volatile uint8_t cfx_frz;     /* the Cloud's FREEZE (the FX screen's LFO; not kept: off at power-on) */
 
 static struct {
     uint32_t hash;                   /* of cfx_set: what the values below were worked out from */
@@ -178,7 +182,19 @@ static void cf_fx_apply(const cf_fx_t *s)
     fm1_irq_on();
 }
 
+/* the Cloud's four macros (cs.cloud) -> the ISR's; FREEZE on or off */
+static void cf_cloud_apply(const uint8_t *p)
+{
+    uint32_t i;
+    fm1_irq_off();
+    for (i = 0; i < 4u; i++)
+        cfx_cl[i] = p[i] > 100u ? 100u : p[i];
+    fm1_irq_on();
+}
+static void cf_cloud_freeze(int on) { cfx_frz = (uint8_t)(on != 0); }
+
 static void cv_coefs(uint32_t type, uint32_t decay);   /* (the reverb, below) */
+static void cl_coefs(uint32_t space, int on);         /* (the Cloud, below) */
 
 /* the values -> what each effect runs on (a change of the set: once) */
 static void cfx_coefs(void)
@@ -190,7 +206,10 @@ static void cfx_coefs(void)
     int32_t m;
     cfx.fg_t = CFX_G[f[1] > 99u ? 99u : f[1]];
     cfx.fk = CFX_K[f[2] > 100u ? 100u : f[2]];
-    cv_coefs(t, rv[1]);
+    if (rv[0] == CL_TYPE)                               /* (the plate keeps its last set, fading out if it rang) */
+        cl_coefs(rv[1], (int)((s->on >> CFX_REVERB) & 1u));   /* (DECAY's value is the Cloud's SPACE) */
+    else
+        cv_coefs(t, rv[1]);
     xfp[XP_DSYNC] = 0;                                  /* the stock delay's time is free, in ms */
     xfp[XP_DMODE] = 1;                                  /* ping-pong */
     xfp[XP_DTIME] = (int16_t)(dl[0] * 127u / 100u);
@@ -490,18 +509,355 @@ static void cv_run(const int32_t *in, int32_t *ol, int32_t *orr, uint32_t nh, in
     cv.idle = any ? 0u : cv.idle + nh;
 }
 
+/* ---- the Cloud: the reverb's fourth TYPE, a granular cloud after the owner's browser sim (its FM-1 LIMITS mode:
+ * the lengths, the grain count and the grain buffer below are that mode's), at 22.05 kHz between the same half-band
+ * filters as the plate. The send: a swell (BLOOM: the wet comes in slowly after each new attack) and a 150 Hz low cut,
+ * then a pre-delay tied to SPACE (10 .. 70 ms) and four diffusing all-passes (0.5 .. 0.7 with SPACE). The tank: four
+ * lines (41 .. 67 ms, times 1 .. 3 with SPACE), each read between two samples on its own slow sine (0.11 .. 0.29 Hz,
+ * 0.3 .. 2.5 ms with BLOOM), a one-pole's damping, a 4 x 4 Hadamard mix, the line's decay (RT60 1.5 .. 40 s with
+ * SPACE), an all-pass of its own and a soft knee at 0.8 of the line's range. The grain cloud: the tank's out goes into
+ * half a second of buffer; up to six grains read it (80 .. 380 ms, a sin^2 window, each panned), some an octave up or
+ * down, some reversed, as CLOUD rises (35 a second at 100), and their sum goes back into the tank (the cloud keeps
+ * growing in the tail) and out. Then the tone tilt around 1.2 kHz (TONE) and the ducking (DUCK: the wet gives way
+ * while the bus plays, and blooms when it stops). FREEZE: nothing new in, the decay at 0.9998 a pass and no damping
+ * (the tank holds what it has), the grains' way back at 0.3.
+ * MEMORY: the Cloud keeps its lines in the delay's buffer, the upper half of each of its two lines (cr_fx.c xd_m: the
+ * delay runs on the lower halves meanwhile, up to 370 ms); cf_fx_chain's wipe clears both and moves the line between
+ * the two layouts when the TYPE goes to or from Cloud. The plate's cv_buf is not touched. Lines int16; states int32;
+ * gains Q15; every product in the loops truncated towards 0 (xf_tz15: no DC creeps round a 40 s tank) */
+#define CL_MAXG 6u                                /* grains at once (the sim's FM-1 LIMITS) */
+#define CL_GL 11025u                              /* the grain buffer: 0.5 s */
+#define CL_PRE_N 1546u                            /* the pre-delay's ring: 70 ms and the read's two points */
+static const uint16_t CL_LN[4] = {2791, 3347, 3956, 4498};   /* each line's ring: SIZE 3, the swing, the reads */
+static const uint16_t CL_APN[4] = {105, 79, 281, 205};       /* the input's all-passes (Dattorro's, at 22.05 kHz) */
+static const uint16_t CL_ILN[4] = {117, 147, 174, 200};      /* each line's own all-pass: 5.3 .. 9.1 ms */
+static const int32_t CL_BASE[4] = {233130, 280547, 332479, 378766};   /* the lines at SPACE 0, Q8 samples */
+static const uint32_t CL_LFO[4] = {342818, 529810, 716802, 903794};   /* 0.11 .. 0.29 Hz: phase a half-rate block */
+_Static_assert(2791u + 3347u + 3956u + 4498u + CL_PRE_N <= XD_N / 2u, "the Cloud's tank and pre-delay fit half a line");
+_Static_assert(CL_GL + 105u + 79u + 281u + 205u + 117u + 147u + 174u + 200u <= XD_N / 2u,
+               "the Cloud's grain buffer and all-passes fit half a line");
+static const uint16_t CL_RT[101] = {   /* the tank's RT60 for SPACE 0..100, ms: 1.5 + (s / 100)^1.5 x 38 s (the sim's) */
+    1500, 1538, 1607, 1697, 1804, 1925, 2058, 2204, 2360, 2526, 2702, 2886,
+    3080, 3281, 3491, 3708, 3932, 4164, 4402, 4647, 4899, 5157, 5421, 5692,
+    5968, 6250, 6538, 6831, 7130, 7434, 7744, 8059, 8379, 8704, 9034, 9368,
+    9707, 10051, 10399, 10753, 11111, 11474, 11841, 12213, 12589, 12970, 13355, 13744,
+    14138, 14535, 14935, 15343, 15752, 16166, 16583, 17004, 17429, 17857, 18289, 18725,
+    19164, 19607, 20054, 20504, 20958, 21415, 21875, 22339, 22806, 23277, 23750, 24227,
+    24707, 25191, 25678, 26182, 26661, 27157, 27656, 28158, 28663, 29171, 29682, 30196,
+    30713, 31233, 31757, 32283, 32812, 33344, 33879, 34417, 34958, 35502, 36048, 36598,
+    37150, 37705, 38263, 38823, 39500,
+};
+typedef struct {
+    int32_t pos, inc;                             /* in the grain buffer, Q16; its step (+-0.5, 1, 2; < 0 reversed) */
+    uint32_t wph, winc, left;                     /* the window's phase and step, samples to go */
+    int32_t pl, pr;                               /* the pan, Q15 */
+} cl_grain_t;
+static struct {
+    int16_t *ln[4], *pre, *gb, *ap[4], *il[4];    /* the rings, in the delay's upper halves (cl_init) */
+    uint16_t lw[4], pw, gw, apw[4], ilw[4];       /* their write indices */
+    int32_t cur[4], tgt[4];                       /* the lines' lengths now (gliding, Q8) and set by SPACE */
+    uint32_t lph[4];                              /* their sines' phases */
+    int32_t depth, gl[4], damp, apg, pre_t, pre_c;   /* the swing (Q8 samples), the decays, the damping, the
+                                                   * diffusers' gain (Q15), the pre-delay set and now (samples) */
+    int32_t dmp[4], hp, tl[2];                    /* the damping's states, the low cut's, the tilt's */
+    int32_t fz, fast, slow, sw, slow_k, duck_e, dk;   /* FREEZE's gain in; the swell's two envelopes, its gain and
+                                                   * attack; the ducking's envelope and gain (Q15) */
+    uint32_t spawn, quiet;                        /* a grain's chance a block (of 2^32); blocks of a silent tail */
+    int32_t seed, fbg, gmix, tq, cloud, bloom, duck, frz;   /* .. the grains' way back, their level out, TONE (Q15) */
+    int32_t fb[XF_NH];                            /* the grains' last block: into the tank's next */
+    cl_grain_t g[CL_MAXG];
+    uint8_t ng, ready;
+} cl;
+static uint8_t cl_live;                           /* the Cloud runs (its lines are in place: cfx_wipe), else the plate */
+
+static void cl_init(void)                         /* the rings laid out in the delay's upper halves, the state cleared */
+{
+    int16_t *a = &xd_buf[0][XD_N / 2u], *b = &xd_buf[1][XD_N / 2u];
+    uint32_t k;
+    memset(&cl, 0, sizeof cl);
+    for (k = 0; k < 4u; k++) {
+        cl.ln[k] = a;
+        a += CL_LN[k];
+    }
+    cl.pre = a;
+    cl.gb = b;
+    b += CL_GL;
+    for (k = 0; k < 4u; k++) {
+        cl.ap[k] = b;
+        b += CL_APN[k];
+    }
+    for (k = 0; k < 4u; k++) {
+        cl.il[k] = b;
+        b += CL_ILN[k];
+    }
+    cl.fz = cl.sw = cl.dk = 32768;
+    cl.seed = 0x2545F491;
+    cl.ready = 1;
+}
+
+/* SPACE (DECAY's place), the four macros and FREEZE -> the gains; on: the reverb takes the send (off: the tail rings
+ * out in a couple of seconds, unfrozen) */
+static void cl_coefs(uint32_t space, int on)
+{
+    uint32_t k, s = space > 100u ? 100u : space, c = cfx_cl[0] > 100u ? 100u : cfx_cl[0];
+    uint32_t b = cfx_cl[1] > 100u ? 100u : cfx_cl[1], rt = CL_RT[s], y;
+    int frz = on && cfx_frz;
+    if (!cl.ready)
+        cl_init();
+    if (!on && rt > 2000u)
+        rt = 2000u;
+    for (k = 0; k < 4u; k++) {
+        int32_t t = CL_BASE[k] * (int32_t)(100u + 2u * s) / 100;
+        uint32_t len = (uint32_t)t >> 8;          /* samples */
+        cl.tgt[k] = t;
+        if (!cl.cur[k])
+            cl.cur[k] = t;                        /* (the first time: where it is set) */
+        /* g = 10^(-3 L / RT60) = e^-(6.9078 L / RT60): xf_expn takes the exponent x 65536 */
+        y = 452709u * len / (rt * 441u / 20u);
+        cl.gl[k] = frz ? 32761 : (int32_t)xf_expn(y);
+        if (cl.gl[k] > 32700 && !frz)
+            cl.gl[k] = 32700;
+    }
+    cl.depth = (int32_t)(16934u + 1242u * b) / 10;   /* (0.3 + 2.2 b) ms, Q8 samples */
+    cl.damp = frz ? 32768 : 18022;                /* the sim's 0.55 a sample (a corner near 2.8 kHz), open frozen */
+    cl.apg = 16384 + (int32_t)(655u * s / 10u);   /* 0.5 + 0.2 s */
+    cl.pre_t = (int32_t)((22050u + 1323u * s) / 100u);
+    if (!cl.pre_c)
+        cl.pre_c = cl.pre_t;
+    cl.spawn = c * c * 10909u;                    /* (c / 100)^2 x 35 a second, a block of 16 at 22.05 kHz */
+    cl.cloud = (int32_t)c;
+    cl.fbg = (int32_t)(c * 18022u / 100u) * (frz ? 3 : 10) / 10;   /* cloud x 0.55 (x 0.3 frozen) */
+    cl.gmix = (int32_t)(9830u + 229u * c);        /* 0.3 + 0.7 cloud */
+    cl.tq = (int32_t)((cfx_cl[2] > 100u ? 100u : cfx_cl[2]) * 32768u / 100u);
+    cl.duck = cfx_cl[3] > 100u ? 100 : cfx_cl[3];
+    cl.bloom = (int32_t)b;
+    /* the swell: the slow envelope's attack, (0.03 + 2.5 b) s; k = 1 - e^-(a block / it) */
+    cl.slow_k = 32768 - (int32_t)xf_expn((uint32_t)(47555u * 100u / (3000u + 250u * b)));
+    cl.frz = frz;
+}
+
+XF_AI int32_t cl_knee(int32_t v)                  /* itself to 0.8 of the line's range, then a parabola to its limit */
+{
+    int32_t a, e;
+    if ((uint32_t)(v + 26214) <= 52428u)
+        return v;
+    a = v < 0 ? -v : v;
+    e = a - 26214;
+    a = e >= 13106 ? 32767 : 26214 + e - (int32_t)(((uint32_t)e * (uint32_t)e) / 26214u);
+    return v < 0 ? -a : a;
+}
+XF_AI int32_t cl_rd(const int16_t *b, uint32_t n, uint32_t w, int32_t d)   /* a ring of n read d (Q8) behind w */
+{
+    int32_t i = (int32_t)w - (d >> 8), j, a;
+    if (i < 0)
+        i += (int32_t)n;
+    j = i - 1;
+    if (j < 0)
+        j += (int32_t)n;
+    a = b[i];
+    return a + xf_tz8((b[j] - a) * (d & 255));
+}
+XF_AI int32_t cl_ap(int16_t *b, uint16_t *w, uint32_t n, int32_t x, int32_t g)   /* an all-pass of the ring's length */
+{
+    int32_t z = b[*w], v = cl_knee(x - xf_tz15(g * z));
+    b[*w] = (int16_t)v;
+    if (++*w >= n)
+        *w = 0;
+    return z + xf_tz15(g * v);
+}
+XF_AI uint32_t cl_u16(void) { return noise32(&cl.seed) >> 16; }   /* 0 .. 65535 */
+
+/* a new grain: its length, pitch, direction, place and pan, after the sim (with its reads kept clear of the write:
+ * a reversed grain and a slow one move away from it, and are kept short enough not to reach round to it) */
+static void cl_spawn(void)
+{
+    cl_grain_t *g = &cl.g[cl.ng];
+    uint32_t c = (uint32_t)cl.cloud, p16 = 65536u, len, s0, grow, spread, room = CL_GL - 882u, s, u;
+    int rev;
+    if (cl_u16() < 13107u + 327u * c)             /* an octave: 0.2 + 0.5 cloud of them, 0.6 of those up */
+        p16 = cl_u16() < 39322u ? 131072u : 32768u;
+    rev = cl_u16() < 196u * c;                    /* reversed: 0.3 cloud */
+    len = 1764u + ((cl_u16() * 6615u) >> 16);     /* 80 .. 380 ms */
+    if (rev) {
+        uint32_t lmax = (room - 441u) * 65536u / (65536u + p16);
+        if (len > lmax)
+            len = lmax;
+        s0 = 441u;
+        grow = (uint32_t)(((uint64_t)len * (65536u + p16)) >> 16);
+    } else {
+        if (((uint64_t)len * p16 >> 16) > room * 6u / 10u)
+            len = (uint32_t)((uint64_t)(room * 6u / 10u) * 65536u / p16);
+        s0 = (uint32_t)(((uint64_t)len * p16) >> 16) + 441u;
+        grow = p16 < 65536u ? (uint32_t)(((uint64_t)len * (65536u - p16)) >> 16) : 0u;
+    }
+    spread = room > s0 + grow ? room - s0 - grow : 0u;
+    if (spread > CL_GL)
+        spread = CL_GL;
+    s = s0 + ((cl_u16() * spread) >> 16);
+    s = (uint32_t)cl.gw + CL_GL - s;              /* (s < room < CL_GL) */
+    if (s >= CL_GL)
+        s -= CL_GL;
+    g->pos = (int32_t)(s << 16);
+    g->inc = rev ? -(int32_t)p16 : (int32_t)p16;
+    g->left = len;
+    g->wph = 0;
+    g->winc = 0xFFFFFFFFu / len;
+    u = noise32(&cl.seed) >> 2;                   /* the pan: an angle 0 .. pi / 2, equal power */
+    g->pl = osc_sine(u + 0x40000000u);
+    g->pr = osc_sine(u);
+    cl.ng++;
+}
+
+/* a half-rate block of the mono send -> the stereo wet (half rate, the bus's scale x 1/2: as xf_down's) */
+static void cl_run(const int32_t *in, int32_t *ol, int32_t *orr, uint32_t nh)
+{
+    int32_t tl[XF_NH], tr[XF_NH], gl[XF_NH], gr[XF_NH], d0[4];
+    int32_t pk = 0, opk = 0, fz, sw0, sw1, dk0, dk1, tgt;
+    uint32_t j, k, q;
+    /* the block's envelopes: the swell's (slow / fast) and the ducking's, from the send's peak */
+    for (j = 0; j < nh; j++) {
+        int32_t a = in[j] < 0 ? -in[j] : in[j];
+        pk = a > pk ? a : pk;
+    }
+    cl.fast += xf_tz15((pk - cl.fast) * (pk > cl.fast ? 10158 : 296));   /* 2 ms up, 80 ms down */
+    cl.slow += xf_tz15((pk - cl.slow) * (pk > cl.slow ? cl.slow_k : 296));
+    sw0 = cl.sw;
+    sw1 = cl.fast < 64 ? 32768 : cl.slow >= cl.fast ? 32768 : (int32_t)(((int64_t)cl.slow << 15) / cl.fast);
+    cl.sw = sw1;
+    cl.duck_e += xf_tz15((pk - cl.duck_e) * (pk > cl.duck_e ? 2295 : 79));   /* 10 ms up, 300 ms down */
+    {
+        int32_t melo = cl.duck_e >= 2500 ? 32768 : cl.duck_e * 32768 / 2500;  /* (2500: a chord at the
+                                                   * default level, -19 dBFS out, ducks the wet by most of DUCK) */
+        tgt = 32768 - melo * cl.duck / 100;
+    }
+    dk0 = cl.dk;
+    cl.dk += xf_tz15((tgt - cl.dk) * 819) + (tgt > cl.dk ? 1 : tgt < cl.dk ? -1 : 0);
+    dk1 = cl.dk;
+    fz = cl.fz;                                   /* FREEZE: the send fades out (and back) over ~40 ms */
+    cl.fz += cl.frz ? -(cl.fz >> 5) - 1 : ((32768 - cl.fz) >> 5) + 1;
+    cl.fz = xf_clamp(cl.fz, 0, 32768);
+    for (k = 0; k < 4u; k++) {                    /* each line's read this block (its sine moves ~0.07 samples a
+                                                   * block at most: one read point a block) */
+        int32_t dd = cl.tgt[k] - cl.cur[k], s = xf_tz15(dd * 21);   /* (the size glides: ~1 s) */
+        cl.cur[k] += s ? s : dd > 0 ? 1 : dd < 0 ? -1 : 0;
+        cl.lph[k] += CL_LFO[k];
+        d0[k] = cl.cur[k] + xf_tz15(osc_sine(cl.lph[k]) * cl.depth);
+    }
+    if (cl.pre_c != cl.pre_t)
+        cl.pre_c += cl.pre_c < cl.pre_t ? 1 : -1;
+    for (j = 0; j < nh; j++) {
+        int32_t x = in[j] >> 1, o[4], h[4], inp, s;
+        x = xf_tz15(x * (sw0 + (((sw1 - sw0) * (int32_t)j) >> 4)));   /* the swell */
+        cl.hp += xf_tz15((x - cl.hp) * 1371);    /* the low cut: 150 Hz */
+        x = xf_tz15((x - cl.hp) * fz);
+        cl.pre[cl.pw] = (int16_t)xf_clamp(x, -32767, 32767);
+        {
+            int32_t i = (int32_t)cl.pw - cl.pre_c;
+            if (i < 0)
+                i += (int32_t)CL_PRE_N;
+            x = cl.pre[i];
+        }
+        if (++cl.pw >= CL_PRE_N)
+            cl.pw = 0;
+        for (k = 0; k < 4u; k++)
+            x = cl_ap(cl.ap[k], &cl.apw[k], CL_APN[k], x, cl.apg);
+        inp = (x + cl.fb[j]) >> 1;
+        for (k = 0; k < 4u; k++) {
+            int32_t y = cl_rd(cl.ln[k], CL_LN[k], cl.lw[k], d0[k]);
+            cl.dmp[k] += xf_tz15((y - cl.dmp[k]) * cl.damp);
+            o[k] = cl.dmp[k];
+        }
+        h[0] = (o[0] + o[1] + o[2] + o[3]) >> 1;  /* the Hadamard mix (orthonormal: / 2) */
+        h[1] = (o[0] - o[1] + o[2] - o[3]) >> 1;
+        h[2] = (o[0] + o[1] - o[2] - o[3]) >> 1;
+        h[3] = (o[0] - o[1] - o[2] + o[3]) >> 1;
+        for (k = 0; k < 4u; k++) {
+            int32_t w = ((k & 1u) ? -inp : inp) + xf_tz15(cl.gl[k] * h[k]);
+            w = cl_ap(cl.il[k], &cl.ilw[k], CL_ILN[k], cl_knee(w), 16384);
+            cl.ln[k][cl.lw[k]] = (int16_t)cl_knee(w);
+            if (++cl.lw[k] >= CL_LN[k])
+                cl.lw[k] = 0;
+        }
+        tl[j] = xf_tz15((o[0] - xf_tz15(o[1] * 13107) + xf_tz15(o[2] * 19661)) * 22938);   /* the sim's taps:
+                                                   * (o0 - 0.4 o1 + 0.6 o2) x 0.7, and the mirror */
+        tr[j] = xf_tz15((o[1] - xf_tz15(o[0] * 13107) + xf_tz15(o[3] * 19661)) * 22938);
+        s = (tl[j] + tr[j]) >> 1;
+        cl.gb[cl.gw] = (int16_t)xf_clamp(s, -32767, 32767);
+        if (++cl.gw >= CL_GL)
+            cl.gw = 0;
+        gl[j] = gr[j] = 0;
+    }
+    /* the grains: a new one now and then, then each over the block (its state in registers) */
+    if (cl.cloud > 1 && cl.ng < CL_MAXG && noise32(&cl.seed) < cl.spawn)
+        cl_spawn();
+    for (q = 0; q < cl.ng;) {
+        cl_grain_t *g = &cl.g[q];
+        int32_t pos = g->pos, inc = g->inc, pl = g->pl, pr = g->pr;
+        uint32_t wph = g->wph, winc = g->winc, left = g->left, m = left < nh ? left : nh;
+        const int32_t top = (int32_t)(CL_GL << 16);
+        for (j = 0; j < m; j++) {
+            int32_t i = pos >> 16, i2 = i + 1 >= (int32_t)CL_GL ? 0 : i + 1, a = cl.gb[i], y, win;
+            y = a + xf_tz8((cl.gb[i2] - a) * ((pos >> 8) & 255));
+            {                                    /* sin^2 (pi x) as (4 x (1 - x))^2: three products, no sine */
+                int32_t u = (int32_t)(wph >> 17), p4 = (u * (32768 - u)) >> 13;
+                win = (p4 * p4) >> 15;
+            }
+            y = xf_tz15(xf_tz15(y * win) * 18022);              /* x 0.55 */
+            gl[j] += xf_tz15(y * pl);
+            gr[j] += xf_tz15(y * pr);
+            pos += inc;
+            if (pos < 0)
+                pos += top;
+            else if (pos >= top)
+                pos -= top;
+            wph += winc;
+        }
+        g->pos = pos;
+        g->wph = wph;
+        g->left = left - m;
+        if (!g->left)
+            cl.g[q] = cl.g[--cl.ng];              /* (done: the last one in its place) */
+        else
+            q++;
+    }
+    /* out: the tank's taps and the grains, the tilt, x 1.6, the ducking; the grains' way back for the next block */
+    for (j = 0; j < nh; j++) {
+        int32_t dk = dk0 + (((dk1 - dk0) * (int32_t)j) >> 4), c, w, lo, gs[2];
+        gs[0] = xf_clamp(gl[j], -65535, 65535);  /* (six grains at their loudest: the products below stay 32-bit) */
+        gs[1] = xf_clamp(gr[j], -65535, 65535);
+        cl.fb[j] = xf_tz15(((gs[0] + gs[1]) >> 1) * cl.fbg);
+        for (c = 0; c < 2; c++) {
+            w = (c ? tr[j] : tl[j]) + xf_tz15(gs[c] * cl.gmix);
+            cl.tl[c] += CFX_MUL(w - cl.tl[c], 9490, 15);   /* the tilt's low side: 1.2 kHz */
+            lo = cl.tl[c];
+            w = CFX_MUL(lo, 32768 - cl.tq, 15) + CFX_MUL(w - lo, cl.tq, 15);
+            w = CFX_MUL(w, dk, 15);
+            (c ? orr : ol)[j] = w * 9;          /* x 1.6, x 2 back from the half the tank took, and x 2.8: near the Hall's
+                                                   * level at the same MIX (an emulator measurement) */
+            opk |= w < 0 ? -w : w;
+        }
+    }
+    cl.quiet = pk || opk > 3 || cl.ng || cl.frz ? 0u : cl.quiet + 1u;
+}
+
 static void cfx_reverb(int32_t *l, int32_t *r, uint32_t n, int feed)
 {
     int32_t *hr = xf.t[1], *ol = xf.t[2], *orr = xf.t[3], any;
     uint32_t i, nh = n >> 1;
-    int fed = cfx_send(l, r, n, feed);
+    int fed = cfx_send(l, r, n, feed), cloud = cl_live;   /* (the layout's: during the fade, the one fading out) */
     if (!cv.ready)
         cv_coefs(1, 45);
-    if (!fed && cv.idle > 15u * 22050u && !xf.up_live)
+    if (cloud) {
+        if (!fed && cl.quiet > 1378u && !xf.up_live)
+            return;                               /* a second of a silent tail (FREEZE never is): nothing runs */
+    } else if (!fed && cv.idle > 15u * 22050u && !xf.up_live)
         return;                                   /* 15 s of nothing in: the tail is gone, nothing runs */
     XF_CALL(xf_down)(&xf.dn[1], cfx.m, hr, n);
     /* (switched off: the tail rings out, but in a second or two even at DECAY 100, where it would never end) */
-    cv_run(hr, ol, orr, nh, feed || cv.dec < 16000 ? cv.dec : 16000);
+    if (cloud)
+        cl_run(hr, ol, orr, nh);
+    else
+        cv_run(hr, ol, orr, nh, feed || cv.dec < 16000 ? cv.dec : 16000);
     for (i = 0, any = 0; i < nh; i++)
         any |= ol[i] | orr[i];
     if (any)
@@ -662,12 +1018,62 @@ static void cf_boot_note(void)
         cfb.yield = 1;
 }
 
+/* the delay's buffer between its two layouts: the whole of each line the delay's, or the lower halves the delay's and
+ * the upper ones the Cloud's (cl_init). When the reverb's TYPE goes to or from Cloud: first the delay's and the
+ * reverb's wet fade out (48 blocks, 35 ms: their wet gains eased to 0, -56 dB), then both lines are cleared, 4 KiB a
+ * block (23 ms; the two send nothing meanwhile), then the ring is set, the delay starts again from rest at its time
+ * (clamped to the ring), the Cloud from silence, and their wet gains ease back in */
+#define CLW_FADE 48u
+static struct {
+    uint8_t mode;                    /* the layout now: 1 the Cloud's lines are there */
+    uint8_t busy, snap;              /* 1 fading, 2 wiping; the delay's time to be taken as it is set (no glide) */
+    uint32_t at;                     /* blocks faded, then samples cleared */
+} clw;
+static void cfx_wipe(int want)
+{
+    int16_t *b = &xd_buf[0][0];
+    uint32_t k;
+    if (!clw.busy) {
+        if (want == clw.mode)
+            return;
+        clw.busy = 1;
+        clw.at = 0;
+    }
+    cfx.wt[CFX_DELAY] = cfx.wt[CFX_REVERB] = 0;   /* (held at 0 until the end: cfx_coefs sets them again then) */
+    if (clw.busy == 1) {
+        if (++clw.at < CLW_FADE && (cfx.wg[CFX_DELAY] | cfx.wg[CFX_REVERB]))
+            return;
+        cfx.wg[CFX_DELAY] = cfx.wg[CFX_REVERB] = 0;
+        clw.busy = 2;
+        clw.at = 0;
+    }
+    memset(b + clw.at, 0, 2048u * sizeof *b);
+    clw.at += 2048u;
+    if (clw.at < 2u * XD_N)
+        return;
+    xd_m = want ? XD_N / 2u - 1u : XD_M;
+    xf.d_w = 0;
+    xf.d_live = 0;
+    xf.d_q = 0;
+    for (k = 0; k < 2u; k++) {
+        xf.d_lp[k] = xf.d_hp[k] = 0;
+        xf.d_e[k][0] = xf.d_e[k][1] = xf.d_e[k][2] = 0;
+    }
+    xf.hash = 0;                     /* (the delay's times again, against the new ring) */
+    clw.snap = 1;
+    cl_init();
+    cfx.hash = 0;                    /* (the Cloud's gains and the wet gains again) */
+    clw.mode = (uint8_t)want;
+    cl_live = (uint8_t)want;
+    clw.busy = 0;
+}
+
 static void cf_fx_chain(int32_t *l, int32_t *r, uint32_t n)
 {
     uint32_t i, h;
     if (!cfx_ready)
         return;
-    h = cfx_fnv(&cfx_set, sizeof cfx_set);
+    h = cfx_fnv(&cfx_set, sizeof cfx_set) ^ (cfx_fnv(cfx_cl, sizeof cfx_cl) * 31u) ^ (cfx_frz ? 0x9E3779B9u : 0u);
     if (h != cfx.hash || !cfx.fa1) {
         cfx.hash = h;
         cfx_coefs();
@@ -675,7 +1081,13 @@ static void cf_fx_chain(int32_t *l, int32_t *r, uint32_t n)
             cfx.fg = cfx.fg_t;
         cfx_filter_coefs();
     }
+    cfx_wipe(cfx_set.v[CFX_REVERB][0] == CL_TYPE);   /* (after the coefficients: it holds the two wet gains at 0) */
     cfx_xf_prepare();
+    if (clw.snap) {                  /* (after a wipe: the delay at its time at once, nothing to glide from) */
+        xf.d_cur[0] = xf.d_tgt[0];
+        xf.d_cur[1] = xf.d_tgt[1];
+        clw.snap = 0;
+    }
     for (i = 0; i < CFX_N; i++) {
         uint32_t e = cfx_set.order[i];
         int on = e < CFX_N && ((cfx_set.on >> e) & 1u);
@@ -684,8 +1096,17 @@ static void cf_fx_chain(int32_t *l, int32_t *r, uint32_t n)
         case CFX_DIST: if (on) cfx_dist(l, r, n); break;
         case CFX_CHORUS: if (on) cfx_chorus(l, r, n); break;
         case CFX_PHASER: if (on) cfx_phaser(l, r, n); break;
-        case CFX_DELAY: cfx_delay(l, r, n, on); break;   /* (off: no new sound in, the tail rings out) */
-        case CFX_REVERB: cfx_reverb(l, r, n, on); break;
+        case CFX_DELAY:                  /* (off: no new sound in, the tail rings out) */
+        case CFX_REVERB:
+            if (clw.busy == 2) {         /* (the wipe: their wet silent; faded out before it) */
+                cfx_send(l, r, n, 0);
+                cfx_mix(l, r, e, n, 256, 0);
+            } else if (e == CFX_DELAY) {
+                cfx_delay(l, r, n, on);
+            } else {
+                cfx_reverb(l, r, n, on);
+            }
+            break;
         default: break;
         }
     }

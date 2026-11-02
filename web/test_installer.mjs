@@ -12,7 +12,7 @@
 //   card, dialog and script; web/install/index.html forwards to /#install; no ChoralRoot-only parts
 // - the texts: every key the script names, and every error code fm1ota.js throws, has an English text
 // - the page itself (its module script with the three libraries inlined, as a browser links them) against a DOM stub and
-//   a simulated FM-1: no Web MIDI; no releases.json (a file only); the file check (a well-formed FM-1_930 package made
+//   a simulated FM-1: no Web MIDI; no releases.json (a file only); the file check (a well-formed FM-1_941 package made
 //   by a JS port of tools/fm1pkg_make.py accepted; another identity, the official firmware, no Felucca loader, a damaged
 //   file, not a package: refused, Install stays off); installs over the stock firmware, CoralFlower, ChoralRoot,
 //   Felucca (backup, then the restore offered), the refusals and the override, resume from update mode, the errors;
@@ -225,15 +225,15 @@ function ufw(flash, otaBin, product) {           // fm1pkg_make.ufw: the UFW con
   raw.set(logical.subarray(20 * 0x2F), 20 * 0x30);
   return raw;
 }
-const makePkg = ({ product = "FM-1_930", marker = true, seed = 0 } = {}) =>
+const makePkg = ({ product = "FM-1_941", marker = true, seed = 0 } = {}) =>
   ufw(flashImage(fillB(0x6000, seed + 1)), concat(fillB(0x700, seed + 2), marker ? ascii("FELUCCA-LOADER-1") : fillB(16, 9), fillB(0x300, seed + 3)), product);
 
 const good = makePkg(), good2 = makePkg({ seed: 5 });
 {
   let parsed = null;
   try { parsed = new Package(good); } catch (e) { console.log(String(e)); }
-  ok(parsed && productOf(good) === "FM-1_930" && parsed.flashSize === FLASH_SIZE && parsed.appBase === 0x4000 && parsed.app.size === APP_SLOT &&
-     parsed.entries.some((e) => e.type === 100 && e.name === "ota.bin"), `test package (fm1pkg_make.py in JS): ${good.length} B, FM-1_930, parses as an FM-1 package`);
+  ok(parsed && productOf(good) === "FM-1_941" && parsed.flashSize === FLASH_SIZE && parsed.appBase === 0x4000 && parsed.app.size === APP_SLOT &&
+     parsed.entries.some((e) => e.type === 100 && e.name === "ota.bin"), `test package (fm1pkg_make.py in JS): ${good.length} B, FM-1_941, parses as an FM-1 package`);
 }
 
 /* ---------------------------------------------- (e) the page, run against a DOM stub --- */
@@ -303,7 +303,7 @@ async function choose(p, name, bytes) {          // "Choose a .fwsc file" and a 
 const HS = [0xF0, 0x00, 0x32, 0x45, 0x00, 0x00, 0x00, 0x40, 0x7F, 0xF7];
 const UPGRADE = [0xF0, 0x22, 0x24, 0x35, 0x7F, 0xF7];
 class FakeFM1 {
-  constructor(image, { identity = "FM-1_015", loader = "ota-FM-1_930", final = "FM-1_930", onServe = null, bk = null } = {}) {
+  constructor(image, { identity = "FM-1_015", loader = "ota-FM-1_941", final = "FM-1_941", onServe = null, bk = null } = {}) {
     this.image = image; this.served = 0; this.bad = 0; this.upgrades = 0; this.bkFrames = 0; this.bkCmds = []; this.boots = 0;
     this.loader = loader; this.final = final; this.onServe = onServe; this.bk = bk;
     this.access = { inputs: new Map(), outputs: new Map() };
@@ -427,7 +427,7 @@ async function readyPage(dev, opts = {}) {
   await p.$["pkg-file"].fire("change");
   ok(p.$.pkg.className === "pkg ok" && p.$.pkg.textContent === en.pkgOk.replace("{name}", "coralflower-0.2-test.fwsc") &&
      p.$["pkg-sum"].textContent === "SHA-256 " + await sha256(good) && p.$["pkg-name"].textContent === "coralflower-0.2-test.fwsc",
-     "file: a well-formed FM-1_930 package -> ready, checked, its SHA-256 shown");
+     "file: a well-formed FM-1_941 package -> ready, checked, its SHA-256 shown");
   ok(!p.$.go.disabled && p.$.go.textContent === "Install on your FM-1" && p.$.ver.textContent === "coralflower-0.2-test.fwsc", "file: Install enabled, named after the file");
   // refusals: each leaves Install off, and says why
   const refusals = [
@@ -453,14 +453,14 @@ async function readyPage(dev, opts = {}) {
 
 // installs from a file
 {
-  // over the stock firmware: it cannot be backed up (asked once), then installed, identity FM-1_930
+  // over the stock firmware: it cannot be backed up (asked once), then installed, identity FM-1_941
   const dev = new FakeFM1(image);
   const p = await readyPage(dev);
   let guarded = null;
   dev.onServe = (n) => { if (n === 2) { let prevented = false; p.win.l.beforeunload({ preventDefault: () => { prevented = true; }, returnValue: "" }); guarded = prevented && p.$.go.disabled && p.$["pkg-pick"].disabled; } };
   await p.$.go.fire("click");
-  ok(p.$.status.textContent === en.done && p.$.bar.value === 100 && dev.bad === 0 && dev.identity === "FM-1_930",
-    `install over stock: -> loader -> FM-1_930, status Done, bar 100 (${dev.served} reads, all bytes right)`);
+  ok(p.$.status.textContent === en.done && p.$.bar.value === 100 && dev.bad === 0 && dev.identity === "FM-1_941",
+    `install over stock: -> loader -> FM-1_941, status Done, bar 100 (${dev.served} reads, all bytes right)`);
   ok(guarded === true, "install: Install and the file picker locked, the page guarded against closing while writing");
   ok(p.confirms.length === 1 && p.confirms[0].startsWith(en.noBackupConfirm) && !p.downloads.length && !dev.bkCmds.includes(65) && p.$["backup-note"].hidden,
     "install over stock: no INFO, so no backup tried -> asked once, as before");
@@ -471,16 +471,16 @@ async function readyPage(dev, opts = {}) {
 {
   // CoralFlower over CoralFlower: backed up (coralflower-backup-*.json), no restore offered, the new version read back
   const before = backupSide("CoralFlower 0.3.1", CF_BACKUP_IDS, cfData()), after = backupSide("CoralFlower 0.2", CR_BACKUP_IDS, crData());
-  const dev = new FakeFM1(image, { identity: "FM-1_930", bk: (id, boots) => (id.startsWith("ota-") ? null : boots < 3 ? before : after) });
+  const dev = new FakeFM1(image, { identity: "FM-1_941", bk: (id, boots) => (id.startsWith("ota-") ? null : boots < 3 ? before : after) });
   const p = await readyPage(dev);
   await p.$.go.fire("click");
   ok(p.downloads.length === 1 && /^coralflower-backup-\d{8}\.json$/.test(p.downloads[0].name) && !p.confirms.length && !before.log.length && !after.log.length,
     `CoralFlower over CoralFlower: backed up first (${p.downloads[0]?.name}), no question, no restore`);
   ok(/^backup CoralFlower 0\.3\.1: user sounds 1-16, CoralFlower settings, CoralFlower loop, CoralFlower patterns and song$/m.test(p.$.log.textContent),
     "CoralFlower over CoralFlower: the backup holds the sequencer's six parts, named once in the log");
-  ok(p.$.status.textContent === en.done && dev.identity === "FM-1_930" && dev.bad === 0 && p.$["done-line"].textContent === "Done. Your FM-1 now runs CoralFlower 0.2.",
+  ok(p.$.status.textContent === en.done && dev.identity === "FM-1_941" && dev.bad === 0 && p.$["done-line"].textContent === "Done. Your FM-1 now runs CoralFlower 0.2.",
     "CoralFlower over CoralFlower: installed, and the new version read back (\"now runs CoralFlower 0.2\")");
-  ok(/running: FM-1_930 CoralFlower 0\.3\.1 -> allow \(coralflower\)/.test(p.$.log.textContent), "CoralFlower over CoralFlower: classified allow (coralflower) in the log");
+  ok(/running: FM-1_941 CoralFlower 0\.3\.1 -> allow \(coralflower\)/.test(p.$.log.textContent), "CoralFlower over CoralFlower: classified allow (coralflower) in the log");
 }
 {
   // over ChoralRoot: allowed, backed up, no restore offered (its data stays in the flash, CoralFlower uses it)
@@ -488,13 +488,13 @@ async function readyPage(dev, opts = {}) {
   const dev = new FakeFM1(image, { identity: "FM-1_920", bk: (id) => (id === "FM-1_920" ? cr : null) });
   const p = await readyPage(dev);
   await p.$.go.fire("click");
-  ok(p.downloads.length === 1 && /^choralroot-backup-/.test(p.downloads[0].name) && !p.confirms.length && p.$.status.textContent === en.done && dev.identity === "FM-1_930",
+  ok(p.downloads.length === 1 && /^choralroot-backup-/.test(p.downloads[0].name) && !p.confirms.length && p.$.status.textContent === en.done && dev.identity === "FM-1_941",
     "over ChoralRoot: backed up, installed, no restore offered");
 }
 {
   // over Felucca 1.0: the backup first, then CoralFlower, then the backup offered back, restored, RESTART
   const fel = backupSide("FELUCCA 1.0", BACKUP_IDS, feluccaData()), cf = backupSide("CoralFlower 0.2", CR_BACKUP_IDS);
-  const dev = new FakeFM1(image, { identity: "FM-1_910", bk: (id) => (id === "FM-1_910" ? fel : id === "FM-1_930" ? cf : null) });
+  const dev = new FakeFM1(image, { identity: "FM-1_910", bk: (id) => (id === "FM-1_910" ? fel : id === "FM-1_941" ? cf : null) });
   const p = await readyPage(dev);
   await p.$.go.fire("click");
   ok(p.downloads.length === 1 && /^felucca-backup-\d{8}\.json$/.test(p.downloads[0].name) && p.confirms.length === 1 && p.confirms[0] === en.restoreOffer,
@@ -507,7 +507,7 @@ async function readyPage(dev, opts = {}) {
   const dev = new FakeFM1(image, { identity: "FM-1_930" });
   const p = await readyPage(dev);
   await p.$.go.fire("click");
-  ok(dev.identity === "FM-1_930" && dev.bad === 0 && dev.upgrades === 2 && p.$.status.textContent === en.done && p.$.done.hidden === false && p.$["force-box"].hidden !== false,
+  ok(dev.identity === "FM-1_941" && dev.bad === 0 && dev.upgrades === 2 && p.$.status.textContent === en.done && p.$.done.hidden === false && p.$["force-box"].hidden !== false,
     "early CoralFlower (FM-1_930, no INFO): allowed and installed");
   ok(!p.confirms.length && !p.downloads.length && !dev.bkCmds.includes(65) && p.$["backup-note"].hidden === false && p.$["backup-note"].textContent === en.noBackupCf &&
      /backup: skipped/.test(p.$.log.textContent) && /running: FM-1_930 -> allow \(coralflower\)/.test(p.$.log.textContent),
@@ -559,7 +559,7 @@ async function readyPage(dev, opts = {}) {
   ok(p.confirms.length === 1 && p.confirms[0] === en.forceConfirm.replace("{name}", "Sloop") && dev.upgrades === 0 && p.$.status.textContent === en.cancelled,
     "guard: override ticked, the second confirm declined -> nothing written");
   ({ p, dev } = await over("FM-1_900", "FELUCCA SLOOP 2.2", { force: true }));
-  ok(dev.identity === "FM-1_930" && dev.bad === 0 && p.$.log.textContent.includes("override: installing over Sloop"), "guard: override ticked and confirmed -> installed over Sloop");
+  ok(dev.identity === "FM-1_941" && dev.bad === 0 && p.$.log.textContent.includes("override: installing over Sloop"), "guard: override ticked and confirmed -> installed over Sloop");
   for (const [identity, version, name] of [["FM-1_909", "FELUCCA 0.9-BETA", "a Felucca beta or a firmware based on one (FELUCCA 0.9-BETA)"],
     ["FM-1_000", null, "Sloop's rescue mode (FM-1_000)"], ["FM-1_931", null, "an unknown Felucca-based firmware (FM-1_931)"]]) {
     ({ p, dev } = await over(identity, version));
@@ -567,18 +567,18 @@ async function readyPage(dev, opts = {}) {
   }
   for (const [identity, version] of [["FM-1_910", "FELUCCA v1.0.1"], ["FM-1_90111", "MELODEE v0.11.1"], ["FM-1_015", null]]) {
     ({ p, dev } = await over(identity, version));
-    ok(dev.identity === "FM-1_930" && p.$.status.textContent === en.done && p.$["force-box"].hidden !== false, `guard: over ${version || "the stock " + identity} -> installed, no override shown`);
+    ok(dev.identity === "FM-1_941" && p.$.status.textContent === en.done && p.$["force-box"].hidden !== false, `guard: over ${version || "the stock " + identity} -> installed, no override shown`);
   }
 }
 
 // resume: the FM-1 is already in update mode
 {
   const cf = backupSide("CoralFlower 0.2", CR_BACKUP_IDS);
-  const dev = new FakeFM1(image, { identity: "ota-FM-1_930", bk: (id) => (id === "FM-1_930" ? cf : null) });
+  const dev = new FakeFM1(image, { identity: "ota-FM-1_941", bk: (id) => (id === "FM-1_941" ? cf : null) });
   const p = await readyPage(dev);
   await p.$.go.fire("click");
-  ok(p.$.status.textContent === en.done && dev.bad === 0 && dev.identity === "FM-1_930" && !p.confirms.length && !p.downloads.length &&
-     p.$["done-line"].textContent === "Done. Your FM-1 now runs CoralFlower 0.2.", "resume: update mode -> the write finished, FM-1_930, no question, the version read back");
+  ok(p.$.status.textContent === en.done && dev.bad === 0 && dev.identity === "FM-1_941" && !p.confirms.length && !p.downloads.length &&
+     p.$["done-line"].textContent === "Done. Your FM-1 now runs CoralFlower 0.2.", "resume: update mode -> the write finished, FM-1_941, no question, the version read back");
 }
 // interrupted while writing: the guidance
 {
@@ -620,7 +620,7 @@ async function readyPage(dev, opts = {}) {
 // "What is on my FM-1?"
 {
   const ask = async (dev) => { const p = runPage({ navigator: midiOf(dev) }); await p.ready; await p.$["check-go"].fire("click"); return p.$.unit; };
-  let u = await ask(new FakeFM1(image, { identity: "FM-1_930", bk: () => backupSide("CoralFlower 0.1", CR_BACKUP_IDS) }));
+  let u = await ask(new FakeFM1(image, { identity: "FM-1_941", bk: () => backupSide("CoralFlower 0.1", CR_BACKUP_IDS) }));
   ok(!u.hidden && u.textContent === en.cnCf.replace("{name}", "CoralFlower 0.1") && u.className === "unit", "check: CoralFlower -> its version, an update keeps what is saved");
   u = await ask(new FakeFM1(image, { identity: "FM-1_920", bk: () => backupSide("ChoralRoot 0.21", CR_BACKUP_IDS) }));
   ok(u.textContent === en.cnOther.replace("{name}", "ChoralRoot 0.21"), "check: ChoralRoot -> CoralFlower can be installed over it");
@@ -629,8 +629,8 @@ async function readyPage(dev, opts = {}) {
   u = await ask(new FakeFM1(image, { identity: "FM-1_930" }));
   ok(u.textContent === en.cnCf.replace("{name}", "CoralFlower (an early build without backup support)") && u.className === "unit",
     "check: an early CoralFlower (no INFO) -> named as such, allowed");
-  u = await ask(new FakeFM1(image, { identity: "ota-FM-1_930" }));
-  ok(u.textContent === en.cnLoader.replace("{identity}", "ota-FM-1_930"), "check: update mode -> finish the write with Install");
+  u = await ask(new FakeFM1(image, { identity: "ota-FM-1_941" }));
+  ok(u.textContent === en.cnLoader.replace("{identity}", "ota-FM-1_941"), "check: update mode -> finish the write with Install");
   u = await ask({ access: { inputs: new Map(), outputs: new Map() } });
   ok(u.textContent === en.notfound && u.className === "unit bad", "check: no FM-1 -> notfound");
 }
@@ -650,7 +650,7 @@ async function readyPage(dev, opts = {}) {
     return b ? { ok: true, status: 200, arrayBuffer: async () => b.buffer.slice(b.byteOffset, b.byteOffset + b.length) } : notFound();
   };
   const cf = backupSide("CoralFlower 0.1", CR_BACKUP_IDS, crData());
-  const dev = new FakeFM1(image, { identity: "FM-1_930", bk: () => cf });
+  const dev = new FakeFM1(image, { identity: "FM-1_941", bk: () => cf });
   let p = runPage({ navigator: midiOf(dev), fetch: site(await sha256(good)) });
   await p.ready;
   const chips = p.$.versions.innerHTML;
@@ -668,7 +668,7 @@ async function readyPage(dev, opts = {}) {
   ok(p.$.ver.textContent === "candidate.fwsc" && !p.$.versions.innerHTML.includes('aria-pressed="true"'), "releases: a file chosen instead -> no chip pressed, Install names the file");
   await p.$.versions.fire("click", { target: { closest: () => ({ dataset: { ver: "0.2" }, disabled: false }) } });
   await p.$.go.fire("click");
-  ok(dev.identity === "FM-1_930" && dev.bad === 0 && p.$.status.textContent === en.done && /install: CoralFlower 0\.2 \(coralflower-0\.2\.fwsc\)/.test(p.$.log.textContent),
+  ok(dev.identity === "FM-1_941" && dev.bad === 0 && p.$.status.textContent === en.done && /install: CoralFlower 0\.2 \(coralflower-0\.2\.fwsc\)/.test(p.$.log.textContent),
     "releases: back to 0.2, installed from the site's package");
   p = runPage({ navigator: midiOf(new FakeFM1(image)), fetch: site("0".repeat(64)) });
   await p.ready;
@@ -693,7 +693,7 @@ async function readyPage(dev, opts = {}) {
 // Back up and Restore
 {
   const cf = backupSide("CoralFlower 0.1", CR_BACKUP_IDS, crData());
-  const dev = new FakeFM1(image, { identity: "FM-1_930", bk: () => cf });
+  const dev = new FakeFM1(image, { identity: "FM-1_941", bk: () => cf });
   const p = runPage({ navigator: midiOf(dev) });
   await p.ready;
   ok(!p.$["backup-go"].disabled && p.$["restore-go"].disabled, "Back up enabled, Restore waits for a file");
@@ -722,7 +722,7 @@ async function readyPage(dev, opts = {}) {
   // the patterns and song after it still go back (the owner's pick for 0.6)
   const ids = CF_BACKUP_IDS.filter((id) => id < 56);
   const cf6 = backupSide("CoralFlower 0.6", ids, cfData());
-  const dev = new FakeFM1(image, { identity: "FM-1_930", bk: () => cf6 });
+  const dev = new FakeFM1(image, { identity: "FM-1_941", bk: () => cf6 });
   const p = runPage({ navigator: midiOf(dev) });
   await p.ready;
   let blobText = null;
@@ -745,7 +745,7 @@ async function readyPage(dev, opts = {}) {
   // CoralFlower 0.3.1: the sequencer's patterns and song in the file and back; on 0.3 (no such objects) kept in the file
   const CF031 = CF_BACKUP_IDS.filter((id) => id < 56);   // (0.3.1 lists neither 0.4.2's sound edits nor 0.5's pattern sounds)
   const cf = backupSide("CoralFlower 0.3.1", CF031, cfData());
-  const dev = new FakeFM1(image, { identity: "FM-1_930", bk: () => cf });
+  const dev = new FakeFM1(image, { identity: "FM-1_941", bk: () => cf });
   const p = runPage({ navigator: midiOf(dev) });
   await p.ready;
   let blobText = null;
@@ -781,7 +781,7 @@ async function readyPage(dev, opts = {}) {
   const v15 = { size: STOCK_V15_SIZE, arrayBuffer: async () => new ArrayBuffer(STOCK_V15_SIZE) };
   const cfSide = () => backupSide("CoralFlower 0.1", CR_BACKUP_IDS, crData());
   const run = async (answer) => {
-    const dev = new FakeFM1(stockImage, { identity: "FM-1_930", final: "FM-1_015", loader: "ota-FM-1_015", bk: (id) => (id === "FM-1_930" ? cfSide() : null) });
+    const dev = new FakeFM1(stockImage, { identity: "FM-1_941", final: "FM-1_015", loader: "ota-FM-1_015", bk: (id) => (id === "FM-1_941" ? cfSide() : null) });
     const p = runPage({ navigator: midiOf(dev), prelude, extra: { __stockImage: stockImage }, confirm: () => answer });
     await p.ready;
     p.$["stock-file"].files = [{ size: 123, arrayBuffer: async () => new ArrayBuffer(123) }];
@@ -812,7 +812,7 @@ async function readyPage(dev, opts = {}) {
     try {
       writeFileSync(join(dir, "app.bin"), fillB(0x9000, 21));
       writeFileSync(join(dir, "ota.bin"), concat(fillB(0x900, 22), ascii("FELUCCA-LOADER-1"), fillB(0x200, 23)));
-      const r = spawnSync("python3", [join(ROOT, "tools/fm1pkg_make.py"), join(dir, "app.bin"), join(dir, "ota.bin"), join(dir, "cf.fwsc"), "--product", "FM-1_930", "--sdk", sdk], { encoding: "utf8" });
+      const r = spawnSync("python3", [join(ROOT, "tools/fm1pkg_make.py"), join(dir, "app.bin"), join(dir, "ota.bin"), join(dir, "cf.fwsc"), "--product", "FM-1_941", "--sdk", sdk], { encoding: "utf8" });
       if (r.status !== 0) console.log(`tools/fm1pkg_make.py package: skipped (${(r.stderr || (r.error && r.error.message) || "").trim().split("\n").pop()})`);
       else {
         const real = new Uint8Array(readFileSync(join(dir, "cf.fwsc")));

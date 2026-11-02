@@ -33,8 +33,9 @@ typedef struct {
     cf_set_t s;
 } cf_rec_t;
 _Static_assert(sizeof(cf_rec_t) <= ST_LOG_MAX, "settings: a record fits one log entry");
-_Static_assert(sizeof(cf_set_t) == 188u, "settings: 0.4.1 takes a record of this size (a new field fits the padding, "
-               "or a downgrade loses the settings)");
+_Static_assert(sizeof(cf_set_t) == 192u, "settings: CoralFlower 0.6.1's record (188 B) and the Cloud's four bytes after "
+               "it (an older build's shorter record is read with the Cloud at its defaults; a CoralFlower without the "
+               "Cloud, given this record, starts from its own defaults)");
 _Static_assert(__builtin_offsetof(cf_set_t, notes_in) == 172u && __builtin_offsetof(cf_set_t, mark) == 174u &&
                __builtin_offsetof(cf_set_t, in_ch) == 175u,
                "settings: NOTES IN, the ARP's byte, 0.5's mark and IN CH sit where 0.4.x keeps the looper's four");
@@ -139,10 +140,14 @@ static void cfs_sanitize(cf_set_t *s)
             s->fx = d.fx;
         for (e = 0; e < CFX_N; e++)
             for (i = 0; i < 3u; i++)
-                if (s->fx.v[e][i] > 100u || ((e == CFX_FILTER || e == CFX_REVERB) && !i && s->fx.v[e][i] > 2u))
+                if (s->fx.v[e][i] > 100u || (e == CFX_FILTER && !i && s->fx.v[e][i] > 2u) ||
+                    (e == CFX_REVERB && !i && s->fx.v[e][i] > CL_TYPE))   /* (the reverb: Room .. Cloud) */
                     s->fx.v[e][i] = d.fx.v[e][i];
         s->fx.on &= (1u << CFX_N) - 1u;
     }
+    for (i = 0; i < 4u; i++)              /* the Cloud's macros */
+        if (s->cloud[i] > 100u)
+            s->cloud[i] = d.cloud[i];
 }
 
 /* power-on: cs from flash, if a good record is there (1), else cs stays as it is (the defaults) */

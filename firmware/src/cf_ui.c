@@ -66,6 +66,7 @@ static void cf_send_config(void)                 /* the chord settings -> the au
     cfp_cfg.bass_only = sq_live_bass();          /* (.. the bass alone in the frame's BASS) */
     fm1_irq_on();
     cf_fx_apply(&cs.fx);
+    cf_cloud_apply(cs.cloud);
     cf_post(CFE_CONFIG, 0, 0, 0);
 }
 static void cf_send_metro(void)
@@ -698,6 +699,7 @@ static void ui_select(int d)                     /* SELECT: the bass sound, or a
     }
     if (cu.scr == SCR_FX) {                      /* FX: the effect along the chain */
         cu.fx_pos = (uint8_t)clampi(cu.fx_pos + d, 0, CFX_N - 1);
+        cu.page[SCR_FX] = 0;                     /* (the Cloud's second page: left with the reverb) */
         return;
     }
     if (screen_pages(cu.scr) > 1u) {
@@ -962,6 +964,18 @@ static void ui_button(uint32_t b)
             cu.rec_hold = cu.now ? cu.now : 1u;
             cu.rec_fired = 0;
             cf_rec_down();
+            return;
+        }
+    }
+    if (cu.scr == SCR_FX && cfx_cloud()) {       /* the Cloud reverb: LFO is FREEZE, SEL (on the reverb) its second
+                                                  * page of knobs and back */
+        if (b == B_LFO) {
+            cfx_freeze_toggle();
+            return;
+        }
+        if (b == B_SCL && cfx_sel() == CFX_REVERB) {
+            cu.page[SCR_FX] ^= 1u;
+            cv_turned(cu.page[SCR_FX] ? 1 : -1);
             return;
         }
     }
@@ -1575,6 +1589,12 @@ static void cf_leds(void)
     for (k = 0; k < SCR_N; k++)                  /* (the rhythm machine: as the sequencer, cf_dmui.c) */
         if ((!sq && !rm) || SCR_BTN[k] == B_HOME || SCR_BTN[k] == B_SEQ || SCR_BTN[k] == B_GLO)
             cf_led(k == cu.scr ? lit : dim, panel.btn[SCR_BTN[k]], 1);
+    if (!sq && !rm && cu.scr == SCR_FX && cfx_cloud()) {   /* the Cloud: LFO (FREEZE) up, blinking while frozen;
+                                                  * SEL up on the reverb (its second page) */
+        cf_led(cfx_frz ? (blink ? lit : mid) : mid, panel.btn[B_LFO], 1);
+        if (cfx_sel() == CFX_REVERB)
+            cf_led(cu.page[SCR_FX] ? lit : mid, panel.btn[B_SCL], 1);
+    }
     if (rm && dm_tweaked(dm_cur()))              /* (SEL: the rhythm's own KIT and SWING back, when it has the user's) */
         cf_led(dim, panel.btn[B_SCL], 1);
     if (rm)                                      /* (EDIT: the rhythm as a new pattern; no empty letter: faint) */

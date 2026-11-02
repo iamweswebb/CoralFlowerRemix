@@ -137,6 +137,12 @@ _Static_assert(CTL == 32, "cr_fx.c: a block is 32 samples (the ramps' shifts)");
 #define XD_MAX (XD_N - 128u)              /* the longest time: the wow's swing (<= 89 samples) and the interpolator's
                                            * points above it */
 #define XD_MS_MAX (XD_MAX * 1000u / XD_FS > 1000u ? 1000u : XD_MAX * 1000u / XD_FS)   /* 740 ms (half rate: 1000) */
+/* the lines' ring in use: all of each line (XD_M), or its first half (XD_N / 2 - 1) while the Cloud reverb keeps its
+ * own lines in the upper halves (cf_fx.c cl_*: the delay is then up to 370 ms). Changed only by cf_fx.c's wipe, with
+ * the lines cleared and the delay's state reset */
+static uint32_t xd_m = XD_M;
+#define XD_MAX_NOW (xd_m + 1u - 128u)
+#define XD_MS_NOW (XD_MAX_NOW * 1000u / XD_FS > 1000u ? 1000u : XD_MAX_NOW * 1000u / XD_FS)
 
 static void xf_defaults(void)
 {
@@ -150,10 +156,10 @@ static uint32_t xf_oct(uint32_t base, uint32_t p, uint32_t per)
 {
     return ((base << (p / per)) * (per + p % per)) / per;
 }
-static uint32_t xf_ms(uint32_t p)         /* XP_DTIME -> ms: 16 .. XD_MS_MAX */
+static uint32_t xf_ms(uint32_t p)         /* XP_DTIME -> ms: 16 .. XD_MS_NOW (XD_MS_MAX, half that beside the Cloud) */
 {
     uint32_t ms = xf_oct(16, p, 23);
-    return ms > XD_MS_MAX ? XD_MS_MAX : ms;
+    return ms > XD_MS_NOW ? XD_MS_NOW : ms;
 }
 static uint32_t xf_rt_ms(uint32_t p)      /* XP_RDECAY -> RT60 in ms (127: "Inf", not this) */
 {
@@ -337,7 +343,7 @@ static void xf_delay_times(uint32_t *l, uint32_t *r)
         const uint8_t *q = XF_RATIO[xfp[XP_DRATIO] & 3];
         /* a quarter note is XD_FS * 60 / bpm; the division 48ths of it, rounded */
         t = (XD_FS * 60u * XF_DIV[(uint32_t)xfp[XP_DDIV] % XF_NDIV] + 24u * bpm) / (48u * bpm);
-        while (t > XD_MAX)
+        while (t > XD_MAX_NOW)
             t >>= 1;                       /* longer than the line: at half (1/4 at 60 BPM plays as 1/8) */
         num = q[0];
         den = q[1];
@@ -443,7 +449,7 @@ XF_AI uint32_t xf_seg(uint32_t p, uint32_t m, uint32_t left)
  * was 35 instructions a read), its time a ramp over the block: the glide's step and the wow's, once a block */
 XF_HOT void xd_run(const int32_t *in, int32_t *ol, int32_t *orr, uint32_t n, uint32_t sh)
 {
-    uint32_t w = xf.d_w, j, k, e;
+    uint32_t w = xf.d_w, j, k, e, m = xd_m;           /* (the ring: xd_m, the whole line or its half) */
     int32_t pk = 0, st = 0, fb, kc, kh = xf.d_kh, pt = xf.d_ping ? 256 : 0, q = xf.d_q, pm = xf.d_pm;
     int32_t wv = xf.d_wv, dw = xf.d_wt - wv;            /* the wow: to this block's target over the block */
     xf.d_fbc += xf_clamp(xf.d_fb - xf.d_fbc, -512, 512);
@@ -468,8 +474,8 @@ XF_HOT void xd_run(const int32_t *in, int32_t *ol, int32_t *orr, uint32_t n, uin
         if (!s && !(cur & 255) && cur >= XD_DMIN) {     /* at rest */
             uint32_t p = w - ((uint32_t)cur >> 8);
             for (j = 0; j < n;) {
-                const int16_t *bp = b + ((p + j) & XD_M) - j;
-                e = j + xf_seg(p + j, XD_M, n - j);
+                const int16_t *bp = b + ((p + j) & m) - j;
+                e = j + xf_seg(p + j, m, n - j);
                 for (; j < e; j++) {
                     a = bp[j];
                     t = (a - lp) * kc + e0;             /* the tone's low-pass, its remainder kept (xf_lp) */
@@ -488,8 +494,8 @@ XF_HOT void xd_run(const int32_t *in, int32_t *ol, int32_t *orr, uint32_t n, uin
             int32_t acc = cur << XD_SH;                 /* (< 2^23 << 5) */
             uint32_t p = w - ((uint32_t)(cur + s) >> 8);
             for (j = 0; j < n;) {
-                const int16_t *bp = b + ((p + j) & XD_M) - j, *bq = b + ((p + j - 1u) & XD_M) - j;
-                e = (p + j) & XD_M ? j + xf_seg(p + j, XD_M, n - j) : j + 1u;   /* (the ring's first sample: its
+                const int16_t *bp = b + ((p + j) & m) - j, *bq = b + ((p + j - 1u) & m) - j;
+                e = (p + j) & m ? j + xf_seg(p + j, m, n - j) : j + 1u;   /* (the ring's first sample: its
                                                          * neighbour is the last) */
                 for (; j < e; j++) {
                     acc += s;
@@ -513,8 +519,8 @@ XF_HOT void xd_run(const int32_t *in, int32_t *ol, int32_t *orr, uint32_t n, uin
                 if (d < XD_DMIN)
                     d = XD_DMIN;
                 p = w + j - ((uint32_t)d >> 8);
-                a = b[p & XD_M];
-                a += xf_tz8((b[(p - 1u) & XD_M] - a) * (d & 255));
+                a = b[p & m];
+                a += xf_tz8((b[(p - 1u) & m] - a) * (d & 255));
                 t = (a - lp) * kc + e0;
                 e0 = t & 32767;
                 lp += t >> 15;
@@ -532,7 +538,7 @@ XF_HOT void xd_run(const int32_t *in, int32_t *ol, int32_t *orr, uint32_t n, uin
     }
     {
         const int32_t *f0 = xf_reg(xf.tf[0]), *f1 = f0 + CTL;
-        int16_t *b0 = xf_reg(&xd_buf[0][w & XD_M]), *b1 = b0 + XD_N;
+        int16_t *b0 = xf_reg(&xd_buf[0][w & m]), *b1 = b0 + XD_N;
         int32_t e0 = xf.d_e[0][2], e1 = xf.d_e[1][2], x, t, wl, wr;
         if (pm == pt && !q) {                           /* the mode at rest: stereo (each side its own return) .. */
             int32_t g = XD_WET + pm * XD_WPP;           /* (65534 x 8680 < 2^31) */

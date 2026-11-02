@@ -164,11 +164,14 @@ static void draw_fx(void)
     flora_render(&flo, &fl_cv);
     draw_plant(Y_VIEW);
     fb_veil(0, Y_VIEW, FB_W, H_VIEW, FL_BG);   /* (the plant faint: the picture leads) */
-    str_cpy(sub, e == CFX_FILTER ? CFX_FTYPE[cs.fx.v[e][0] % 3u] : e == CFX_REVERB ? CFX_RTYPE[cs.fx.v[e][0] % 3u] : "",
+    str_cpy(sub, e == CFX_FILTER ? CFX_FTYPE[cs.fx.v[e][0] % 3u] : e == CFX_REVERB ? CFX_RTYPE[cs.fx.v[e][0] % 4u] : "",
             sizeof sub);
+    if (cfx_cloud_page())
+        str_cpy(sub + str_len(sub), " 2", 3);    /* (the Cloud's second page) */
     if (sub[0])
         str_cpy(sub + str_len(sub), "  ", 3);
-    str_cpy(sub + str_len(sub), cfx_is_on(e) ? "on" : "off", 4);
+    str_cpy(sub + str_len(sub), e == CFX_REVERB && cfx_cloud() && cfx_frz && cfx_is_on(e) ? "frozen" :
+                                cfx_is_on(e) ? "on" : "off", 7);
     draw_title(CFX_NAME[e], sub);
     fb_hline(x0, y0 + 13, run, FL_BG3);          /* the signal's way, a dot running along it */
     {
@@ -188,7 +191,8 @@ static void draw_fx(void)
     draw_fx_graph(e, x0, Y_VIEW + 122, run, 24);
     {
         static const char *const H[4] = {"SELECT", "pick", "ALGO", "move"};
-        draw_hints(H, 2);
+        static const char *const HC[4] = {"SEL", "page", "LFO", "freeze"};   /* (on the Cloud) */
+        draw_hints(e == CFX_REVERB && cfx_cloud() ? HC : H, 2);
     }
 }
 
