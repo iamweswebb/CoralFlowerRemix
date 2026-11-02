@@ -50,6 +50,9 @@ jobs:
                 -fsyntax-only firmware/src/cloudrift.c
           clang -target armv7m-none-eabi -Os -fno-builtin -w -Ifirmware/hal -Ifirmware/src -Ibuild/gen \
                 -fsyntax-only firmware/src/coralflower.c
+          # (a function declared but never defined links nowhere on the unit: the device linker's error, caught here)
+          ! clang -target armv7m-none-eabi -Os -fno-builtin -Wno-everything -Wundefined-internal -Ifirmware/hal \
+                -Ifirmware/src -Ibuild/gen -fsyntax-only firmware/src/cloudrift.c 2>&1 | grep -E "undefined-internal"
 
       - name: The headless emulator builds and plays
         run: |

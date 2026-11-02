@@ -94,3 +94,4 @@ static void cf_message(const char *s)
     str_cpy(cu.msg, s, sizeof cu.msg);
     cu.msg_until = (cu.now ? cu.now : fm1_ms) + 1300u;
 }
+static void ui_message(const char *s) { cf_message(s); }   /* (main.c, cr_bank.c) */

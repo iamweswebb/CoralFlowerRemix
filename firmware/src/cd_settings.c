@@ -120,3 +120,8 @@ static void settings_poll(void)
         cf_message("Saved");
     cu.save_want = 0;
 }
+static void settings_save(void)                  /* main.c's (after the panel calibration): the setup now */
+{
+    if (!cr_safe && !cd_restore_lock)
+        cd_settings_write();
+}
