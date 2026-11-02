@@ -23,8 +23,8 @@ engines, effects, storage and installer) with its own instrument on top, after a
 
 MIDI: notes in on any channel play like the keys; the tracks' notes go out on channels 1 to 4, with clock.
 The package identity is **FM-1_941**, its version text "Cloudrift X.Y"; install it from this fork's page,
-https://iamweswebb.github.io/CoralFlowerRemix/, with "Choose a .fwsc file". The official CoralFlower installer can put
-CoralFlower back. CoralFlower's own unit (firmware/src/coralflower.c) stays in the tree: `UNIT=coralflower` builds it.
+https://iamweswebb.github.io/CoralFlowerRemix/, with "Choose a .fwsc file". To go back to CoralFlower: that page's
+return to the official M-VAVE firmware first (CoralFlower's installer does not know Cloudrift), then CoralFlower's. CoralFlower's own unit (firmware/src/coralflower.c) stays in the tree: `UNIT=coralflower` builds it.
 
 ---
 
