@@ -145,7 +145,12 @@ static uint32_t trk_vmode(const track_t *t)
 static uint32_t voice_units(const track_t *t)
 {
     const engine_t *e = ENGINES[t->engine];
+#ifdef VOICE_UNITS_FIXED
+    (void)e;
+    return VOICE_UNITS_FIXED;                           /* (Cloudrift: every voice the same share, VOICES the count) */
+#else
     return e->units ? e->units(t) : trk_nvoice(t) > NPOLY ? 1u : 2u;
+#endif
 }
 
 /* the budget a part shares: all parts' one (Felucca, one core), or with the second core alive (cr_cpu1.h) part 1's own

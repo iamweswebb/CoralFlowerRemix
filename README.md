@@ -1,12 +1,34 @@
-# CoralFlower
+# Cloudrift
 
-> **This fork (iamweswebb/CoralFlowerRemix): CoralFlower with a Cloud reverb.** The reverb has a fourth TYPE, Cloud:
-> a granular ambient reverb with a long modulated tank and a cloud of octave and reversed grains fed back into it.
-> On the FX screen with the reverb selected: KNOB 3 SPACE, KNOB 4 MIX; **SEL** turns to CLOUD, BLOOM, TONE and DUCK;
-> **LFO** is FREEZE. While the reverb is a Cloud the delay goes up to 370 ms (the Cloud borrows half its memory).
-> The package identity is **FM-1_941** (CoralFlower's is FM-1_930), so it installs from this fork's own page,
-> https://iamweswebb.github.io/CoralFlowerRemix/, with "Choose a .fwsc file". The official CoralFlower installer can
-> still put CoralFlower back over it.
+**An ambient instrument for the M-VAVE FM-1**, built on CoralFlower's foundation (its hardware layer, FM and VA
+engines, effects, storage and installer) with its own instrument on top, after a browser sketch of the idea:
+
+- **Four tracks**, each its own sound, LENGTH (1 to 32 steps), DIVIDE, PROBABILITY and SWING, so they drift against
+  each other.
+- **One key, a whole texture.** A key plays the chord of that note in KEY's major scale (a 9th or 11th, voice-led
+  from the last one) on every CHORD track, its root on every FOLLOW track, and the arpeggiator over it (8 modes: UP,
+  DOWN, UP-DN, RANDOM, EUCLID, DRIFT, TURING, BLOOM). A SEQ track plays its own steps; REC writes what you play into them.
+- **The Cloud**: a granular reverb (a long modulated tank, octave and reversed grains fed back into it, FREEZE), fed
+  by each track's SEND, with a slow ensemble on the dry sound.
+
+| Control | Does |
+|---|---|
+| HOME, ENV (PATCH), ARP, FX (SPACE), SEQ, GLO | the pages; KNOB 1..4 set the page's four values |
+| SEL | hold (or tap) for the short keys: T1..T4, FOLLOW, LEN, SRC; SEL + ARP makes the track an ARP track |
+| EDIT | the selected track CHORD or SEQ |
+| LFO | FREEZE |
+| PLAY, REC, SAVE | play / stop, record into the selected SEQ track, save the setup (it also saves itself when idle) |
+| SELECT, PRESETS, ALGORITHM | the track's LEVEL, SPACE, TEMPO |
+| the long keys on SEQ | the track's steps 1..16 |
+
+MIDI: notes in on any channel play like the keys; the tracks' notes go out on channels 1 to 4, with clock.
+The package identity is **FM-1_941**, its version text "Cloudrift X.Y"; install it from this fork's page,
+https://iamweswebb.github.io/CoralFlowerRemix/, with "Choose a .fwsc file". The official CoralFlower installer can put
+CoralFlower back. CoralFlower's own unit (firmware/src/coralflower.c) stays in the tree: `UNIT=coralflower` builds it.
+
+---
+
+What follows is CoralFlower's own README.
 
 **Your M-VAVE FM-1, made for chords.** CoralFlower is free firmware for the FM-1. Press a chord key, and every note
 you play becomes a whole chord, with a bass underneath. While you play, a pixel flower grows from your chords.

@@ -47,6 +47,8 @@ jobs:
       - name: The unit compiles (an ARM target, every include present)
         run: |
           clang -target armv7m-none-eabi -Os -fno-builtin -w -Ifirmware/hal -Ifirmware/src -Ibuild/gen \
+                -fsyntax-only firmware/src/cloudrift.c
+          clang -target armv7m-none-eabi -Os -fno-builtin -w -Ifirmware/hal -Ifirmware/src -Ibuild/gen \
                 -fsyntax-only firmware/src/coralflower.c
 
       - name: The headless emulator builds and plays
@@ -61,7 +63,7 @@ jobs:
           set -euo pipefail
           mkdir -p build/host
           # (the emulator's <os/lock.h> is macOS's; tools/emu/web/compat has the single-threaded one, as the headless build)
-          cc -std=gnu11 -O1 -w -Itools/emu/web/compat -Ibuild/gen -Ifirmware/src -Itests -o build/host/cf_backup_test \
+          cc -std=gnu11 -O1 -w -DCLOUDRIFT=0 -Itools/emu/web/compat -Ibuild/gen -Ifirmware/src -Itests -o build/host/cf_backup_test \
              tests/cf_backup_test.c -lm
           build/host/cf_backup_test
           cc -std=c99 -Wall -Wextra -Ifirmware/src -o build/cf_chord_test tests/cf_chord_test.c firmware/src/cf_chord.c \

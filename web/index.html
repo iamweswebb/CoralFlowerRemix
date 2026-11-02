@@ -668,7 +668,7 @@ function pkgFail(e, name) {
 }
 
 // ---- the choice: a version of firmware/releases.json (chips), or a file from this computer ----
-const pkgFileName = (version) => `coralflower-${String(version).replace(/[^A-Za-z0-9.-]/g, "-")}.fwsc`;
+const pkgFileName = (version) => `cloudrift-${String(version).replace(/[^A-Za-z0-9.-]/g, "-")}.fwsc`;
 async function loadReleases() {                  // -> the usable entries, newest first; [] when there is no list
   let data;
   try {

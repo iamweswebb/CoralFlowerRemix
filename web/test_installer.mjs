@@ -59,7 +59,7 @@ const GUARD_CASES = [                            // ChoralRoot's tests/install_t
   ["FM-1_900", null, "refuse", "unknown"], ["FM-1_920", null, "refuse", "unknown"], ["FM-1_500", null, "refuse", "unknown"],
   ["FM-1_910", "SOMETHING 3.0", "refuse", "unknown"], ["ota-FM-1_920", null, "loader", "loader"],
   ["FM-1_930", "CoralFlower 0.1", "allow", "coralflower"], ["FM-1_930", "CoralFlower 1.0-rc1", "allow", "coralflower"],
-  ["FM-1_930", "CORALFLOWER 0.2", "allow", "coralflower"], ["FM-1_930", "CoralFlowerX 1", "refuse", "unknown"],
+  ["FM-1_930", "CORALFLOWER 0.2", "allow", "coralflower"], ["FM-1_941", "Cloudrift 0.1", "allow", "coralflower"], ["FM-1_930", "CoralFlowerX 1", "refuse", "unknown"],
   ["FM-1_930", null, "allow", "coralflower"], ["FM-1_930", "", "allow", "coralflower"],   // an early CoralFlower: no INFO
   ["FM-1_931", null, "refuse", "unknown"], ["FM-1_9300", null, "refuse", "unknown"], ["FM-1_929", null, "refuse", "unknown"],
   ["ota-FM-1_930", null, "loader", "loader"],
@@ -423,12 +423,12 @@ async function readyPage(dev, opts = {}) {
   ok(/releases\.json: HTTP 404/.test(p.$.log.textContent), "no releases.json: the log says so");
   await p.$["pkg-pick"].fire("click");
   ok(p.$["pkg-file"].clicks === 1, "\"Choose a .fwsc file\" opens the file picker");
-  p.$["pkg-file"].files = [fileOf("coralflower-0.2-test.fwsc", good)];
+  p.$["pkg-file"].files = [fileOf("cloudrift-0.2-test.fwsc", good)];
   await p.$["pkg-file"].fire("change");
-  ok(p.$.pkg.className === "pkg ok" && p.$.pkg.textContent === en.pkgOk.replace("{name}", "coralflower-0.2-test.fwsc") &&
-     p.$["pkg-sum"].textContent === "SHA-256 " + await sha256(good) && p.$["pkg-name"].textContent === "coralflower-0.2-test.fwsc",
+  ok(p.$.pkg.className === "pkg ok" && p.$.pkg.textContent === en.pkgOk.replace("{name}", "cloudrift-0.2-test.fwsc") &&
+     p.$["pkg-sum"].textContent === "SHA-256 " + await sha256(good) && p.$["pkg-name"].textContent === "cloudrift-0.2-test.fwsc",
      "file: a well-formed FM-1_941 package -> ready, checked, its SHA-256 shown");
-  ok(!p.$.go.disabled && p.$.go.textContent === "Install on your FM-1" && p.$.ver.textContent === "coralflower-0.2-test.fwsc", "file: Install enabled, named after the file");
+  ok(!p.$.go.disabled && p.$.go.textContent === "Install on your FM-1" && p.$.ver.textContent === "cloudrift-0.2-test.fwsc", "file: Install enabled, named after the file");
   // refusals: each leaves Install off, and says why
   const refusals = [
     ["another identity (ChoralRoot's FM-1_920)", makePkg({ product: "FM-1_920" }), "pkgIdentity", "FM-1_920"],
@@ -644,7 +644,7 @@ async function readyPage(dev, opts = {}) {
     { version: "0.0", date: "2026-10-01" },                      // (no sha256: never offered)
   ] });
   const await_sha01 = await sha256(pkg01);
-  const site = (sha02, files = { "firmware/coralflower-0.2.fwsc": good, "firmware/coralflower-0.1.fwsc": pkg01 }) => async (url) => {
+  const site = (sha02, files = { "firmware/cloudrift-0.2.fwsc": good, "firmware/cloudrift-0.1.fwsc": pkg01 }) => async (url) => {
     if (url === "firmware/releases.json") return { ok: true, status: 200, json: async () => list(sha02) };
     const b = files[url];
     return b ? { ok: true, status: 200, arrayBuffer: async () => b.buffer.slice(b.byteOffset, b.byteOffset + b.length) } : notFound();
@@ -658,8 +658,8 @@ async function readyPage(dev, opts = {}) {
      chips.includes("Newest") && chips.includes('data-ver="0.1" aria-pressed="false"') && !chips.includes('data-ver="0.0"'),
      "releases: two chips (the entry without a SHA-256 left out), the newest chosen");
   ok(p.$.pkg.textContent === en.pkgRelOk.replace("{version}", "0.2") && p.$.pkg.className === "pkg ok" && !p.$.go.disabled && p.$.go.textContent === "Install on your FM-1" && p.$.ver.textContent.startsWith("CoralFlower 0.2") &&
-     p.fetched.includes("firmware/coralflower-0.2.fwsc"), "releases: the newest fetched from firmware/, sha256 and package checked, Install CoralFlower 0.2");
-  ok(p.$.notes.innerHTML.includes("Coral growth follows the chord.") && p.$.notes.innerHTML.includes('href="firmware/coralflower-0.2.fwsc" download') &&
+     p.fetched.includes("firmware/cloudrift-0.2.fwsc"), "releases: the newest fetched from firmware/, sha256 and package checked, Install CoralFlower 0.2");
+  ok(p.$.notes.innerHTML.includes("Coral growth follows the chord.") && p.$.notes.innerHTML.includes('href="firmware/cloudrift-0.2.fwsc" download') &&
      p.$.notes.innerHTML.includes("2 November 2026"), "releases: the chosen version's notes, date and download link");
   await p.$.versions.fire("click", { target: { closest: () => ({ dataset: { ver: "0.1" }, disabled: false }) } });
   ok(p.$.ver.textContent.startsWith("CoralFlower 0.1") && p.$.versions.innerHTML.includes('data-ver="0.1" aria-pressed="true"') && p.$.pkg.className === "pkg ok",
@@ -668,7 +668,7 @@ async function readyPage(dev, opts = {}) {
   ok(p.$.ver.textContent === "candidate.fwsc" && !p.$.versions.innerHTML.includes('aria-pressed="true"'), "releases: a file chosen instead -> no chip pressed, Install names the file");
   await p.$.versions.fire("click", { target: { closest: () => ({ dataset: { ver: "0.2" }, disabled: false }) } });
   await p.$.go.fire("click");
-  ok(dev.identity === "FM-1_941" && dev.bad === 0 && p.$.status.textContent === en.done && /install: CoralFlower 0\.2 \(coralflower-0\.2\.fwsc\)/.test(p.$.log.textContent),
+  ok(dev.identity === "FM-1_941" && dev.bad === 0 && p.$.status.textContent === en.done && /install: CoralFlower 0\.2 \(cloudrift-0\.2\.fwsc\)/.test(p.$.log.textContent),
     "releases: back to 0.2, installed from the site's package");
   p = runPage({ navigator: midiOf(new FakeFM1(image)), fetch: site("0".repeat(64)) });
   await p.ready;

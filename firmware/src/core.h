@@ -14,9 +14,11 @@
                                   * sound coming in at a bar line takes a held chord and the pattern's first chord at
                                   * once (CoralFlower 0.5; 4 lost notes of a 5-note chord) */
 #define NPOLY 8                  /* the voices of an engine without its own cap (its per-voice state: engines.c eng_state) */
+#ifndef VBUDGET
 #define VBUDGET 16               /* the sounding voices of all parts, in units: a voice of an engine capped above NPOLY
                                   * (FM6) takes one, any other two, so the others keep their shared eight. With the
                                   * second core alive (CR_CPU1, cr_cpu1.h) parts 0 and 1 each have their own VBUDGET */
+#endif
 #ifndef CR_CPU1
 #define CR_CPU1 0                /* ChoralRoot's bass part on the second core (cr_cpu1.h, docs/DUALCORE.md): choralroot.c
                                   * and the emulator set 1; felucca.c, tests/hostsim.c and tests/regress.c build without */

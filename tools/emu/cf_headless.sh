@@ -8,7 +8,7 @@ cd "$ROOT"
 OUT=${2:-build/cf-run}
 mkdir -p build/host "$OUT"
 cc -O2 -g -w -std=gnu11 -Itools/emu/web/compat -Ibuild/gen -Ifirmware/src -DEMU_WEB \
-   '-DFELUCCA_VERSION="CoralFlower dev"' -o build/host/cf_headless tools/emu/web/emu_web.c tools/emu/cf_headless.c
+   '-DFELUCCA_VERSION="Cloudrift dev"' -o build/host/cf_headless tools/emu/web/emu_web.c tools/emu/cf_headless.c
 build/host/cf_headless "$1" "$OUT"
 python3 - "$OUT" <<'PY' 2>/dev/null || true
 import sys, glob

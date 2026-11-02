@@ -62,11 +62,12 @@ SDK_SHA256 = {
     "cfg/eq_cfg_hw.bin": "41167491bffed4651750719c973d2758adeb9021a5670d02d6a53c85ed80ea7d",
 }
 
-UNIT = "coralflower"                # firmware/src/UNIT.c; outputs build/UNIT.{bin,elf,dis,fwsc}
-PRODUCT = "FM-1_941"                # package identity (CoralFlower Cloud, the iamweswebb fork: its own, constant, releases
-                                    # too; CoralFlower is FM-1_930. The version text stays "CoralFlower X.Y": installers
-                                    # tell a CoralFlower by it, web/fm1ota.js classifyFirmware)
-VERSION = None                      # FELUCCA_VERSION for release builds (default: firmware/src/coralflower.c)
+UNIT = os.environ.get("UNIT", "cloudrift")                  # firmware/src/UNIT.c; outputs build/UNIT.{bin,elf,dis,fwsc} (CoralFlower's unit,
+                                    # coralflower.c, stays in the tree: UNIT=coralflower builds it)
+PRODUCT = "FM-1_941"                # package identity (Cloudrift, the iamweswebb fork: its own, constant, releases too;
+                                    # CoralFlower is FM-1_930). The version text "Cloudrift X.Y" tells the installers what
+                                    # runs (web/fm1ota.js classifyFirmware)
+VERSION = None                      # FELUCCA_VERSION for release builds (default: firmware/src/UNIT.c)
 XIP_LEN, RAM_LEN, POOL_LEN, NOINIT_LEN = fm1pkg_make.BODY_MAX, 96 * 1024, 0x54000, 0x3D30   # firmware/app.ld
 
 
@@ -443,7 +444,7 @@ def mmio_check():
 def main():
     global VERSION
     ap = argparse.ArgumentParser()
-    ap.add_argument("--release", metavar="X.Y", help=f"release build: identity {PRODUCT}, version string CoralFlower X.Y")
+    ap.add_argument("--release", metavar="X.Y", help=f"release build: identity {PRODUCT}, version string Cloudrift X.Y")
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
     ap.add_argument("--gen-only", action="store_true",
                     help="only the generated headers, into build/gen (no toolchain, no SDK)")
@@ -457,7 +458,7 @@ def main():
         m = re.fullmatch(r"\d+\.\d+(?:\.\d+)?(?:-[A-Za-z0-9.]+)?", a.release)   # the identity never encodes it
         if not m:
             raise SystemExit(f"--release {a.release}: use X.Y, X.Y.Z or X.Y-suffix")
-        VERSION = "CoralFlower " + a.release.lower()     # e.g. CoralFlower 0.1, CoralFlower 0.1-rc1 (the INFO text)
+        VERSION = ("Cloudrift " if UNIT == "cloudrift" else "CoralFlower ") + a.release.lower()   # (the INFO text)
         name = f"{UNIT}-{a.release}.fwsc"
     fm1pkg_make.SDK = a.sdk
     for rel, sha in SDK_SHA256.items():          # fail early without the SDK

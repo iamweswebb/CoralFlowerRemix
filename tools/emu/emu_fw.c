@@ -303,6 +303,55 @@ int emu_fw_midi_out_take(uint32_t *pkt)
     return ok;
 }
 
+#if CLOUDRIFT
+void emu_fw_dump(void)
+{
+    uint32_t c, i, k;
+    char nm[20];
+    fm1_irq_off();
+    printf("fm1_in: notes %07X buttons %04X  fm1_ms %u\n", (unsigned)fm1_in.notes, (unsigned)fm1_in.buttons,
+           (unsigned)fm1_ms);
+    printf("  leds:");
+    for (c = 0; c < FM1_NCOL; c++)
+        printf(" %02X/%02X/%02X/%02X", fm1_led[c], fm1_led_dim2[c], fm1_led_dim[c], fm1_led_faint[c]);
+    printf("  (lit/mid/dim/faint)\n  key lights:");
+    for (i = 0; i < 27u; i++) {
+        uint8_t q = cu_led_pos[14u + i], col = q >> 3, bit = (uint8_t)(1u << (q & 7u));
+        printf("%c", q == 0xFF ? '?' : fm1_led[col] & bit ? 'L' : fm1_led_dim2[col] & bit ? 'M' :
+               fm1_led_dim[col] & bit ? 'D' : fm1_led_faint[col] & bit ? 'F' : '.');
+    }
+    cd_chord_name(nm, sizeof nm);
+    printf("\n  page %s  track T%u  sel %u  oct %d  tempo %u  key %u  playing %u rec %u freeze %u  chord %s held %u\n",
+           PG_NAME[cu.page % PG_N], (unsigned)cs.track + 1u, (unsigned)cu.sel, (int)cu.oct, (unsigned)cs.tempo,
+           (unsigned)cs.key, (unsigned)cd_sn.playing, (unsigned)cu.rec, (unsigned)cu.freeze, nm, (unsigned)cd_sn.nheld);
+    for (i = 0; i < CD_NTRK; i++) {
+        const cd_trk_t *T = &cs.t[i];
+        uint32_t n = 0;
+        for (k = 0; k < NVOICE; k++)
+            n += trk[i].v[k].active;
+        printf("  T%u %-12s %-6s len %2u div %u prob %3u swing %3u send %3u level %3u oct %+d tone %3u env %3u  step %d"
+               "  engine %u voices %u  steps ", (unsigned)i + 1u, cd_snd[i].name, CD_MODE_TAG[T->mode % CD_NMODE],
+               (unsigned)T->len, (unsigned)T->div, (unsigned)T->prob, (unsigned)T->swing, (unsigned)T->send,
+               (unsigned)T->level, (int)T->octave, (unsigned)T->tone, (unsigned)T->env, (int)cd_sn.step[i],
+               (unsigned)trk[i].engine, (unsigned)n);
+        for (k = 0; k < T->len; k++)
+            printf("%c", T->steps[k].on ? (T->steps[k].note ? 'n' : 'x') : '.');
+        printf("  gated:");
+        for (k = 0; k < NVOICE; k++)
+            if (trk[i].v[k].active && trk[i].v[k].gate)
+                printf(" %u", (unsigned)trk[i].v[k].note);
+        printf("\n");
+    }
+    printf("  arp %s rate %u range %u chaos %u src %u  cloud: space %u cloud %u bloom %u tilt %u duck %u grains %u"
+           "  voices %u/%u (budget %u)\n", CD_ARP_NAME[cs.arp_mode % CD_NARP], (unsigned)cs.arp_rate,
+           (unsigned)cs.arp_range, (unsigned)cs.arp_chaos, (unsigned)cs.arp_src, (unsigned)cs.space, (unsigned)cs.cloud,
+           (unsigned)cs.bloom, (unsigned)cs.tilt, (unsigned)cs.duck, (unsigned)cd_sn.grains, (unsigned)cd_sn.sounding,
+           (unsigned)cs.voices, (unsigned)cd_vbudget);
+    printf("  settings: %s, saved %08X now %08X  sounds %u\n", cds_loaded ? "loaded" : "defaults",
+           (unsigned)cds_saved, (unsigned)cds_fnv(&cs, sizeof cs), (unsigned)cd_snd_count());
+    fm1_irq_on();
+}
+#else
 void emu_fw_dump(void)
 {
     uint32_t c, i;
@@ -476,10 +525,15 @@ void emu_fw_dump(void)
     fm1_irq_on();
     fflush(stdout);
 }
+#endif
 
 void emu_fw_ui_info(char *buf, uint32_t n)
 {
+#if CLOUDRIFT
+    snprintf(buf, n, "%s", PG_NAME[cu.page % PG_N]);
+#else
     snprintf(buf, n, "%s pop %u", SCR_NAME[cu.scr], (unsigned)cu.pop);
+#endif
 }
 uint32_t emu_fw_keys(uint32_t v[5])
 {

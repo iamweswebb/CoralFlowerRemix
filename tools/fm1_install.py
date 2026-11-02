@@ -232,6 +232,8 @@ def classify_firmware(identity, info):
         return "allow", "coralflower", CF_EARLY       # (any other 9xx without INFO stays refused below)
     if re.match(r"coralflower\b", v, re.I):           # an update of CoralFlower
         return "allow", "coralflower", v
+    if re.match(r"cloudrift\b", v, re.I):             # Cloudrift (this fork, on CoralFlower's protocol)
+        return "allow", "coralflower", v
     if re.match(r"choralroot\b", v, re.I):
         return "allow", "choralroot", v
     if re.match(r"melodee\b", v, re.I):

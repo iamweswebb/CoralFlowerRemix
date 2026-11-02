@@ -88,6 +88,8 @@ export function classifyFirmware(identity, info) {
   // other 9xx without INFO stays refused below)
   if (m[3] === "930" && !v) return { verdict: "allow", kind: "coralflower", name: CF_EARLY };
   if (/^coralflower\b/i.test(v)) return { verdict: "allow", kind: "coralflower", name: v };   // an update of CoralFlower
+  if (/^cloudrift\b/i.test(v)) return { verdict: "allow", kind: "coralflower", name: v };     // Cloudrift (this fork, on
+                                                                                               // CoralFlower's protocol)
   if (/^choralroot\b/i.test(v)) return { verdict: "allow", kind: "choralroot", name: v };
   if (/^melodee\b/i.test(v)) return { verdict: "allow", kind: "melodee", name: `Melodee (${v.slice(8)})` };
   if (/sloop/i.test(v)) return { verdict: "refuse", kind: "sloop", name: "Sloop" };

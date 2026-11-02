@@ -83,7 +83,7 @@ jobs:
           python3 -c 'import json; [print(r["version"], r["tag"], r["sha256"]) for r in json.load(open("build/site/firmware/releases.json"))["releases"]]' > build/list.txt
           : > build/site/firmware/SHA256SUMS
           while read -r v tag sha; do
-            pkg="coralflower-$v.fwsc"
+            pkg="cloudrift-$v.fwsc"
             gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern "$pkg" --dir build/site/firmware --clobber
             echo "$sha  build/site/firmware/$pkg" | sha256sum -c -
             echo "$sha  $pkg" >> build/site/firmware/SHA256SUMS
